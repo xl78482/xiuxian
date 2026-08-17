@@ -12,7 +12,7 @@ import { seedDemoData } from '../../packages/core/demo.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const runtime = createRuntime(root);
-const { config, commerce, paymentProvider } = runtime;
+const { config, commerce, paymentProvider, settings, adminAccounts } = runtime;
 
 if (!config.isProduction) seedDemoData(runtime);
 
@@ -121,18 +121,28 @@ function getBearerToken(request) {
   return authorization.slice(7).trim();
 }
 
-function requireUser(request) {
+function requireIdentity(request) {
   const token = verifySessionToken(getBearerToken(request), config.sessionSecret);
-  if (!token) throw new DomainError('登录状态已失效，请重新进入小程序。', 'unauthenticated', 401);
-  const user = commerce.getUser(token.userId);
-  if (!user) throw new DomainError('登录状态已失效，请重新进入小程序。', 'unauthenticated', 401);
-  return user;
+  if (!token) throw new DomainError('登录状态已失效，请重新登录。', 'unauthenticated', 401);
+  const identity = token.kind === 'admin'
+    ? adminAccounts.findById(token.userId)
+    : commerce.getUser(token.userId);
+  if (!identity) throw new DomainError('登录状态已失效，请重新登录。', 'unauthenticated', 401);
+  return { token, identity };
+}
+
+function requireUser(request) {
+  const { token, identity } = requireIdentity(request);
+  if (token.kind !== 'user') throw new DomainError('管理员会话不能执行买家操作。', 'forbidden', 403);
+  return identity;
 }
 
 function requireAdmin(request) {
-  const user = requireUser(request);
-  if (!user.isAdmin) throw new DomainError('没有后台访问权限。', 'forbidden', 403);
-  return user;
+  const token = verifySessionToken(getBearerToken(request), config.sessionSecret);
+  if (!token || token.kind !== 'admin') throw new DomainError('请使用管理员账号密码登录后台。', 'forbidden', 403);
+  const account = adminAccounts.findById(token.userId);
+  if (!account) throw new DomainError('登录状态已失效，请重新登录后台。', 'unauthenticated', 401);
+  return account;
 }
 
 function requireIdempotencyKey(request) {
@@ -185,8 +195,16 @@ function createDevelopmentUser(body) {
   return commerce.upsertTelegramUser({ id: telegramId, first_name: username || `Developer ${telegramId}`, username });
 }
 
+function telegramBotToken() {
+  return settings.getTelegramBotToken() ?? config.telegramBotToken;
+}
+
 function issueSession(user) {
   return { accessToken: createSessionToken(user.id, config.sessionSecret), user };
+}
+
+function issueAdminSession(account) {
+  return { accessToken: createSessionToken(account.id, config.sessionSecret, 60 * 60 * 8, 'admin'), user: account };
 }
 
 function assertObject(value) {
@@ -229,7 +247,7 @@ async function handleApi(request, response, pathname) {
     if (typeof body.initData !== 'string' || body.initData.length > 8192) {
       throw new DomainError('Telegram 登录数据无效。', 'invalid_request', 422);
     }
-    const telegramUser = verifyTelegramInitData(body.initData, config.telegramBotToken);
+    const telegramUser = verifyTelegramInitData(body.initData, telegramBotToken());
     return sendJson(response, 200, issueSession(commerce.upsertTelegramUser(telegramUser)));
   }
 
@@ -237,20 +255,60 @@ async function handleApi(request, response, pathname) {
     return sendJson(response, 200, issueSession(createDevelopmentUser(assertObject(await readJson(request)))));
   }
 
-  if (method === 'POST' && pathname === '/api/auth/admin/telegram') {
-    if (!checkRateLimit(request, response, 20)) return;
+  if (method === 'POST' && pathname === '/api/auth/admin/password') {
+    if (!checkRateLimit(request, response, 10)) return;
     const body = assertObject(await readJson(request));
-    if (typeof body.initData !== 'string' || body.initData.length > 8192) {
-      throw new DomainError('Telegram 登录数据无效。', 'invalid_request', 422);
+    const username = typeof body.username === 'string' ? body.username.trim() : '';
+    const password = typeof body.password === 'string' ? body.password : '';
+    const account = adminAccounts.authenticate(username, password);
+    if (!account) throw new DomainError('管理员账号或密码错误。', 'invalid_admin_credentials', 401);
+    return sendJson(response, 200, issueAdminSession(account));
+  }
+
+  if (method === 'GET' && pathname === '/api/admin/settings') {
+    const user = requireAdmin(request);
+    return sendJson(response, 200, {
+      username: user.username,
+      telegramBotTokenConfigured: Boolean(telegramBotToken()),
+    });
+  }
+
+  if (method === 'PATCH' && pathname === '/api/admin/settings') {
+    const user = requireAdmin(request);
+    const body = assertObject(await readJson(request));
+    if (body.telegramBotToken !== undefined) {
+      if (typeof body.telegramBotToken !== 'string' || !/^\d+:[A-Za-z0-9_-]{20,}$/.test(body.telegramBotToken.trim())) {
+        throw new DomainError('Telegram Bot Token 格式无效。', 'invalid_request', 422);
+      }
+      const telegramBotToken = body.telegramBotToken.trim();
+      settings.setTelegramBotToken(telegramBotToken);
+      config.telegramBotToken = telegramBotToken;
+      commerce.audit(user.id, 'settings.telegram_bot_token.updated', 'app_setting', 'telegram_bot_token', { configured: true });
     }
-    const telegramUser = verifyTelegramInitData(body.initData, config.telegramBotToken);
-    const user = commerce.upsertTelegramUser(telegramUser);
-    if (!user.isAdmin) throw new DomainError('当前 Telegram 账号不是管理员。', 'forbidden', 403);
-    return sendJson(response, 200, issueSession(user));
+    return sendJson(response, 200, { telegramBotTokenConfigured: settings.isTelegramBotTokenConfigured() });
+  }
+
+  if (method === 'PATCH' && pathname === '/api/admin/account') {
+    const user = requireAdmin(request);
+    const body = assertObject(await readJson(request));
+    const update = {};
+    if (body.username !== undefined) update.username = body.username;
+    if (body.password !== undefined) update.password = body.password;
+    if (!Object.keys(update).length) throw new DomainError('没有需要保存的账号设置。', 'invalid_request', 422);
+    try {
+      const account = adminAccounts.update(user.id, update);
+      commerce.audit(user.id, 'admin.account.updated', 'admin_account', user.id, {
+        usernameChanged: update.username !== undefined,
+        passwordChanged: update.password !== undefined,
+      });
+      return sendJson(response, 200, account);
+    } catch (error) {
+      throw new DomainError(error.message, 'invalid_request', 422);
+    }
   }
 
   if (method === 'GET' && pathname === '/api/me') {
-    return sendJson(response, 200, requireUser(request));
+    return sendJson(response, 200, requireIdentity(request).identity);
   }
 
   if (method === 'GET' && pathname === '/api/public-config') {

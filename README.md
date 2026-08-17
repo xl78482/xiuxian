@@ -2,7 +2,7 @@
 
 Telegram Mini App 自动发卡平台。当前版本使用零第三方运行时依赖的 Node.js 22 + SQLite，支付层通过适配器隔离，首个适配器为 DujiaoPay，默认开发环境使用 mock 支付。
 
-当前版本：`1.0.4`
+当前版本：`1.0.5`
 
 版本更新内容见 [CHANGELOG.md](./CHANGELOG.md)，发布规则见 [RELEASING.md](./RELEASING.md)，尚未完成的上线与运营能力见 [ROADMAP.md](./ROADMAP.md)。
 
@@ -49,7 +49,7 @@ npm start
 - 管理后台：`http://localhost:3000/admin`
 - 健康检查：`http://localhost:3000/api/health`
 
-开发环境的默认管理员 Telegram ID 是 `100000001`，可通过 `?devUser=100000001` 切换测试用户。生产环境会关闭开发登录。
+管理后台使用独立网页账号密码登录，不需要在 Telegram 内打开。首次启动前必须通过 `ADMIN_USERNAME` 和 `ADMIN_PASSWORD` 初始化管理员账号，任何环境都不会生成默认密码。登录后可在“系统设置”中修改账号密码和配置 Telegram Bot Token；首次账号落库并修改密码后，可从 `.env` 删除初始 `ADMIN_PASSWORD`。
 
 ## DujiaoPay 配置
 
@@ -59,8 +59,9 @@ npm start
 NODE_ENV=production
 APP_ORIGIN=https://mini.example.com
 PAYMENT_PROVIDER=dujiaopay
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=replace-with-a-12-character-password
 TELEGRAM_BOT_TOKEN=...
-ADMIN_TELEGRAM_IDS=123456789
 DUJIAOPAY_BASE_URL=https://www.dujiaopay.com
 DUJIAOPAY_KEY_ID=...
 DUJIAOPAY_SECRET=...
@@ -122,7 +123,10 @@ npm run backup -- /mnt/secure-backups
 - `GET /api/orders/:orderNo`：查看自己的订单
 - `POST /api/orders/:orderNo/payment-session`：恢复支付会话
 - `POST /api/webhooks/dujiaopay`：DujiaoPay 回调
-- `POST /api/auth/admin/telegram`：Telegram 管理员登录
+- `POST /api/auth/admin/password`：独立管理员账号密码登录
+- `GET /api/admin/settings`：查看非敏感系统设置状态
+- `PATCH /api/admin/settings`：加密保存 Telegram Bot Token
+- `PATCH /api/admin/account`：修改管理员账号或密码
 - `GET /api/admin/dashboard`：运营数据
 - `POST /api/admin/cards/import`：批量加密导入卡密
 - `GET /api/admin/webhook-failures`：查看验签成功但业务处理失败的回调
@@ -133,7 +137,7 @@ npm run backup -- /mnt/secure-backups
 - 卡密明文只在发放给已授权买家时解密，数据库只保存密文和指纹。
 - 订单金额、币种、链和商户订单号由服务端核对，不能信任前端或回调中的展示字段。
 - 支付回调按原始字节验签，重复 Webhook 和重复发卡任务均幂等。
-- 生产环境强制 HTTPS、Telegram Bot Token，并禁用 mock 支付和开发登录。
+- 生产环境强制 HTTPS；买家 Mini App 需要 Telegram Bot Token，独立后台使用账号密码并禁用开发登录。
 - 失败 Webhook 会记录原因并返回非 2xx 触发渠道重试，可在后台订单页查看。
 - Worker 会恢复超时锁，发卡前会禁用过期卡并从同 SKU 自动补卡。
 - 商品删除使用归档，不物理删除历史关联数据。

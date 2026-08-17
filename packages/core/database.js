@@ -184,6 +184,23 @@ export function openDatabase(databasePath) {
       sql: `ALTER TABLE payment_transactions
             ADD COLUMN payment_instructions TEXT NOT NULL DEFAULT '{}';`,
     },
+    {
+      version: 3,
+      sql: `CREATE TABLE IF NOT EXISTS admin_accounts (
+              id TEXT PRIMARY KEY,
+              username TEXT NOT NULL UNIQUE,
+              password_hash TEXT NOT NULL,
+              is_active INTEGER NOT NULL DEFAULT 1,
+              last_login_at TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS app_settings (
+              key TEXT PRIMARY KEY,
+              value_ciphertext TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );`,
+    },
   ];
   const applied = new Set(db.prepare('SELECT version FROM schema_migrations').all().map((row) => Number(row.version)));
   for (const migration of migrations) {

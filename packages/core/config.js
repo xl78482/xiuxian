@@ -121,8 +121,5 @@ export function loadConfig(rootDirectory = process.cwd()) {
       if (!value) throw new Error(`${name} is required.`);
     }
   }
-  if (config.isProduction && !config.telegramBotToken) {
-    throw new Error('TELEGRAM_BOT_TOKEN is required in production.');
-  }
   return config;
 }

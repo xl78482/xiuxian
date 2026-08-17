@@ -8,6 +8,7 @@ const state = {
   categories: [],
   orders: [],
   webhookFailures: [],
+  settings: null,
   version: null,
   editingProductId: null,
   message: '',
@@ -20,6 +21,7 @@ const icons = {
   orders: '<svg viewBox="0 0 24 24"><path d="M4 3h16v18l-3-2-3 2-3-2-3 2-3-2V3Z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
   external: '<svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9"/><path d="M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6"/></svg>',
   plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+  settings: '<svg viewBox="0 0 24 24"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="4"/></svg>',
 };
 
 function esc(value) {
@@ -53,29 +55,34 @@ async function api(path, options = {}) {
   return payload;
 }
 
-async function login() {
+async function login(username, password) {
   if (state.token) {
     try {
       state.user = await api('/api/me');
       if (!state.user.isAdmin) throw new Error('当前账号不是管理员。');
-      return;
+      return true;
     } catch { state.token = ''; sessionStorage.removeItem('xiuxian_admin_token'); }
   }
-  const params = new URLSearchParams(location.search);
-  const telegram = window.Telegram?.WebApp;
-  const response = telegram?.initData
-    ? await api('/api/auth/admin/telegram', {
-        method: 'POST',
-        body: JSON.stringify({ initData: telegram.initData }),
-      })
-    : await api('/api/auth/development', {
-        method: 'POST',
-        body: JSON.stringify({ telegramId: Number(params.get('devUser') ?? 100000001), username: 'Local Admin' }),
-      });
-  if (!response.user.isAdmin) throw new Error('当前 Telegram 账号不在管理员白名单。');
+  if (!username || !password) return false;
+  const response = await api('/api/auth/admin/password', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+  });
   state.token = response.accessToken;
   state.user = response.user;
   sessionStorage.setItem('xiuxian_admin_token', state.token);
+  return true;
+}
+
+function loginScreen(message = '') {
+  return `<div class="login-screen"><form class="login-box" data-admin-login>
+    <h1>XiuXian Console</h1>
+    <p>使用独立管理员账号登录运营后台。</p>
+    ${message ? `<div class="notice error">${esc(message)}</div>` : ''}
+    <div class="field"><label>管理员账号</label><input name="username" autocomplete="username" required placeholder="admin" /></div>
+    <div class="field"><label>管理员密码</label><input name="password" type="password" autocomplete="current-password" required placeholder="请输入密码" /></div>
+    <button class="solid-button" type="submit">登录后台</button>
+  </form></div>`;
 }
 
 async function loadViewData() {
@@ -94,17 +101,18 @@ async function loadViewData() {
       api('/api/admin/webhook-failures'),
     ]);
   }
+  if (state.view === 'settings') state.settings = await api('/api/admin/settings');
 }
 
 function sidebar() {
-  const links = [['overview', '数据看板'], ['products', '商品管理'], ['inventory', '卡密库存'], ['orders', '订单记录']];
-  return `<aside class="sidebar"><a href="/admin" class="admin-brand"><span class="admin-mark">XX</span><span>XiuXian<small>Operations console · v${esc(state.version ?? '1.0.4')}</small></span></a><span class="side-label">Workspace</span><nav class="side-nav">${links.map(([view, label]) => `<button class="${state.view === view ? 'active' : ''}" data-action="navigate" data-view="${view}">${icons[view]}${label}</button>`).join('')}</nav><div class="sidebar-foot"><strong>${esc(state.user?.firstName ?? '管理员')}</strong>Telegram ID ${esc(state.user?.telegramId ?? '')}<br/>数字商品交付系统 · v${esc(state.version ?? '1.0.4')}</div></aside>`;
+  const links = [['overview', '数据看板'], ['products', '商品管理'], ['inventory', '卡密库存'], ['orders', '订单记录'], ['settings', '系统设置']];
+  return `<aside class="sidebar"><a href="/admin" class="admin-brand"><span class="admin-mark">XX</span><span>XiuXian<small>Operations console · v${esc(state.version ?? '1.0.5')}</small></span></a><span class="side-label">Workspace</span><nav class="side-nav">${links.map(([view, label]) => `<button class="${state.view === view ? 'active' : ''}" data-action="navigate" data-view="${view}">${icons[view]}${label}</button>`).join('')}</nav><div class="sidebar-foot"><strong>${esc(state.user?.username ?? state.user?.firstName ?? '管理员')}</strong>独立管理员账号<br/>数字商品交付系统 · v${esc(state.version ?? '1.0.5')}</div></aside>`;
 }
 
 function topbar() {
-  const titles = { overview: ['数据看板', '今天的经营概况与库存健康度'], products: ['商品管理', '管理分类、商品和销售规格'], inventory: ['卡密库存', '批次导入与可售库存检查'], orders: ['订单记录', '支付状态和自动发卡结果'] };
+  const titles = { overview: ['数据看板', '今天的经营概况与库存健康度'], products: ['商品管理', '管理分类、商品和销售规格'], inventory: ['卡密库存', '批次导入与可售库存检查'], orders: ['订单记录', '支付状态和自动发卡结果'], settings: ['系统设置', '管理员账号与 Telegram Bot 配置'] };
   const [title, subtitle] = titles[state.view];
-  return `<header class="main-top"><div><h1>${title}</h1><p>${subtitle}</p></div><div class="top-actions"><a class="outline-button" href="/" title="打开买家端">${icons.external} 买家端</a><button class="outline-button" data-action="refresh">刷新</button></div></header>`;
+  return `<header class="main-top"><div><h1>${title}</h1><p>${subtitle}</p></div><div class="top-actions"><a class="outline-button" href="/" title="打开买家端">${icons.external} 买家端</a><button class="outline-button" data-action="refresh">刷新</button><button class="outline-button" data-action="logout">退出</button></div></header>`;
 }
 
 function overviewView() {
@@ -179,9 +187,22 @@ function ordersView() {
   <div class="section-bar"><div><h2>支付回调异常</h2><p>验签成功但业务校验未通过的 DujiaoPay 事件</p></div></div>${failureTable}`;
 }
 
+function settingsView() {
+  const settings = state.settings ?? {};
+  return `<div class="settings-grid">
+    <section class="form-panel settings-panel"><h3>Telegram Bot Token</h3><p class="settings-copy">用于买家 Mini App 登录验签。Token 只在服务端加密保存，页面不会回显明文。</p><div class="notice">当前状态：${settings.telegramBotTokenConfigured ? '已配置' : '未配置'}</div><div class="field full"><label>新的 Bot Token</label><input name="telegram-bot-token" type="password" autocomplete="off" placeholder="粘贴 BotFather 提供的 Token" /></div><div class="form-actions"><button class="solid-button" data-action="save-bot-token">保存 Bot Token</button></div></section>
+    <section class="form-panel settings-panel"><h3>管理员账号</h3><p class="settings-copy">修改后台登录账号或密码。新密码至少 12 位。</p><div class="field full"><label>账号</label><input name="admin-username" value="${esc(state.user?.username ?? '')}" autocomplete="username" /></div><div class="field"><label>新密码</label><input name="admin-password" type="password" autocomplete="new-password" placeholder="留空表示不修改" /></div><div class="field"><label>确认新密码</label><input name="admin-password-confirm" type="password" autocomplete="new-password" placeholder="再次输入新密码" /></div><div class="form-actions"><button class="solid-button" data-action="save-admin-account">保存账号设置</button></div></section>
+  </div>`;
+}
+
 function render() {
-  const views = { overview: overviewView, products: productsView, inventory: inventoryView, orders: ordersView };
+  const views = { overview: overviewView, products: productsView, inventory: inventoryView, orders: ordersView, settings: settingsView };
   root.innerHTML = `<div class="admin-shell">${sidebar()}<section class="main">${topbar()}<main class="content">${state.message ? `<div class="notice error" style="margin-bottom:15px">${esc(state.message)}</div>` : ''}${views[state.view]()}</main></section><div class="toast" id="toast"></div></div>`;
+  requestAnimationFrame(() => {
+    const active = document.querySelector('.side-nav button.active');
+    const navigation = active?.parentElement;
+    if (active && navigation) navigation.scrollTo({ left: active.offsetLeft - (navigation.clientWidth - active.offsetWidth) / 2, behavior: 'auto' });
+  });
 }
 
 function toast(message) {
@@ -203,6 +224,13 @@ async function onClick(event) {
   const action = element.dataset.action;
   try {
     if (action === 'reload') { location.reload(); return; }
+    if (action === 'logout') {
+      state.token = '';
+      state.user = null;
+      sessionStorage.removeItem('xiuxian_admin_token');
+      root.innerHTML = loginScreen();
+      return;
+    }
     if (action === 'navigate') { state.view = element.dataset.view; await refresh(); return; }
     if (action === 'refresh') { await refresh(); toast('数据已刷新。'); return; }
     if (action === 'toggle-panel') { const panel = document.querySelector(`#${element.dataset.panel}`); if (panel) panel.hidden = !panel.hidden; return; }
@@ -284,13 +312,50 @@ async function onClick(event) {
       }) });
       toast('卡密已加密并导入。'); await refresh(); return;
     }
+    if (action === 'save-bot-token') {
+      const input = document.querySelector('[name="telegram-bot-token"]');
+      await api('/api/admin/settings', { method: 'PATCH', body: JSON.stringify({ telegramBotToken: input.value }) });
+      toast('Telegram Bot Token 已加密保存。'); await refresh(); return;
+    }
+    if (action === 'save-admin-account') {
+      const username = document.querySelector('[name="admin-username"]').value.trim();
+      const password = document.querySelector('[name="admin-password"]').value;
+      const confirmation = document.querySelector('[name="admin-password-confirm"]').value;
+      if (password && password !== confirmation) throw new Error('两次输入的新密码不一致。');
+      const body = { username };
+      if (password) body.password = password;
+      const account = await api('/api/admin/account', { method: 'PATCH', body: JSON.stringify(body) });
+      state.user = { ...state.user, ...account };
+      toast('管理员账号已更新。'); await refresh(); return;
+    }
   } catch (error) { state.message = error.message; render(); }
 }
 
+async function handleLoginSubmit(event) {
+  if (!event.target.matches('[data-admin-login]')) return;
+  event.preventDefault();
+  const form = event.target;
+  const button = form.querySelector('button[type="submit"]');
+  button?.setAttribute('disabled', '');
+  try {
+    await login(form.querySelector('[name="username"]').value, form.querySelector('[name="password"]').value);
+    await refresh();
+  } catch (error) {
+    root.innerHTML = loginScreen(error.message);
+  } finally {
+    button?.removeAttribute('disabled');
+  }
+}
+
 async function initialize() {
-  root.innerHTML = '<div class="login-screen"><div class="login-box"><h1>正在连接 Console</h1><p>验证 Telegram 管理员身份并载入运营数据。</p></div></div>';
-  try { await login(); await refresh(); } catch (error) { root.innerHTML = `<div class="login-screen"><div class="login-box"><h1>无法进入后台</h1><p>${esc(error.message)}</p><button class="solid-button" data-action="reload">重新连接</button></div></div>`; }
+  root.innerHTML = loginScreen();
+  try {
+    if (await login()) await refresh();
+  } catch (error) {
+    root.innerHTML = loginScreen(error.message);
+  }
 }
 
 document.addEventListener('click', (event) => void onClick(event));
+document.addEventListener('submit', (event) => void handleLoginSubmit(event));
 void initialize();

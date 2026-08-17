@@ -23,8 +23,8 @@ function safeEqual(left, right) {
   return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
 }
 
-export function createSessionToken(userId, sessionSecret, ttlSeconds = 60 * 60 * 8) {
-  const payload = base64url(JSON.stringify({ sub: userId, exp: Math.floor(Date.now() / 1000) + ttlSeconds }));
+export function createSessionToken(userId, sessionSecret, ttlSeconds = 60 * 60 * 8, kind = 'user') {
+  const payload = base64url(JSON.stringify({ sub: userId, exp: Math.floor(Date.now() / 1000) + ttlSeconds, kind }));
   const signature = crypto.createHmac('sha256', sessionSecret).update(payload).digest('base64url');
   return `${payload}.${signature}`;
 }
@@ -38,7 +38,8 @@ export function verifySessionToken(token, sessionSecret) {
   try {
     const decoded = JSON.parse(fromBase64url(payload).toString('utf8'));
     if (!decoded || typeof decoded.sub !== 'string' || !Number.isInteger(decoded.exp)) return null;
-    return decoded.exp > Math.floor(Date.now() / 1000) ? { userId: decoded.sub } : null;
+    const kind = decoded.kind === 'admin' ? 'admin' : 'user';
+    return decoded.exp > Math.floor(Date.now() / 1000) ? { userId: decoded.sub, kind } : null;
   } catch {
     return null;
   }
