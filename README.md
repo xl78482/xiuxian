@@ -2,7 +2,7 @@
 
 Telegram Mini App 自动发卡平台。当前版本使用零第三方运行时依赖的 Node.js 22 + SQLite，支付层通过适配器隔离，首个适配器为 DujiaoPay，默认开发环境使用 mock 支付。
 
-当前版本：`1.0.5`
+当前版本：`1.0.6`
 
 版本更新内容见 [CHANGELOG.md](./CHANGELOG.md)，发布规则见 [RELEASING.md](./RELEASING.md)，尚未完成的上线与运营能力见 [ROADMAP.md](./ROADMAP.md)。
 
@@ -15,7 +15,7 @@ Telegram Mini App 自动发卡平台。当前版本使用零第三方运行时�
 - DujiaoPay HMAC 请求签名和原始 Webhook body 验签
 - Tron USDT 支付配置，保留后续 EPUSDT 等适配器边界
 - 买家端订单、支付轮询、卡密查看/复制、支付会话恢复、售后入口
-- 管理后台数据看板、商品/SKU、卡密导入、订单和发卡重试
+- 管理后台数据看板、用户管理、商品/SKU、卡密导入、订单和发卡重试
 - API 与 Worker 分离，SQLite 数据目录持久化，Docker Compose 生产编排
 
 ## 本地运行
@@ -127,6 +127,8 @@ npm run backup -- /mnt/secure-backups
 - `GET /api/admin/settings`：查看非敏感系统设置状态
 - `PATCH /api/admin/settings`：加密保存 Telegram Bot Token
 - `PATCH /api/admin/account`：修改管理员账号或密码
+- `GET /api/admin/users`：买家资料、订单和消费统计
+- `PATCH /api/admin/users/:id/status`：停用或恢复买家账号
 - `GET /api/admin/dashboard`：运营数据
 - `POST /api/admin/cards/import`：批量加密导入卡密
 - `GET /api/admin/webhook-failures`：查看验签成功但业务处理失败的回调

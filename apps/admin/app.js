@@ -7,6 +7,7 @@ const state = {
   products: [],
   categories: [],
   orders: [],
+  users: [],
   webhookFailures: [],
   settings: null,
   version: null,
@@ -19,6 +20,7 @@ const icons = {
   products: '<svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M8 9h8M8 13h5"/></svg>',
   inventory: '<svg viewBox="0 0 24 24"><path d="M4 7h16v13H4z"/><path d="m4 7 3-4h10l3 4M8 11h8"/></svg>',
   orders: '<svg viewBox="0 0 24 24"><path d="M4 3h16v18l-3-2-3 2-3-2-3 2-3-2V3Z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
+  users: '<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-4 2-7 6-7s6 3 6 7M16 4a3 3 0 0 1 0 6M17 13c3 0 4 3 4 7"/></svg>',
   external: '<svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9"/><path d="M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6"/></svg>',
   plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
   settings: '<svg viewBox="0 0 24 24"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="4"/></svg>',
@@ -95,6 +97,7 @@ async function loadViewData() {
   if (state.view === 'overview' || state.view === 'products' || state.view === 'inventory') {
     [state.products, state.categories] = await Promise.all([api('/api/admin/products'), api('/api/admin/categories')]);
   }
+  if (state.view === 'users') state.users = await api('/api/admin/users');
   if (state.view === 'orders') {
     [state.orders, state.webhookFailures] = await Promise.all([
       api('/api/admin/orders'),
@@ -105,12 +108,12 @@ async function loadViewData() {
 }
 
 function sidebar() {
-  const links = [['overview', '数据看板'], ['products', '商品管理'], ['inventory', '卡密库存'], ['orders', '订单记录'], ['settings', '系统设置']];
-  return `<aside class="sidebar"><a href="/admin" class="admin-brand"><span class="admin-mark">XX</span><span>XiuXian<small>Operations console · v${esc(state.version ?? '1.0.5')}</small></span></a><span class="side-label">Workspace</span><nav class="side-nav">${links.map(([view, label]) => `<button class="${state.view === view ? 'active' : ''}" data-action="navigate" data-view="${view}">${icons[view]}${label}</button>`).join('')}</nav><div class="sidebar-foot"><strong>${esc(state.user?.username ?? state.user?.firstName ?? '管理员')}</strong>独立管理员账号<br/>数字商品交付系统 · v${esc(state.version ?? '1.0.5')}</div></aside>`;
+  const links = [['overview', '数据看板'], ['users', '用户管理'], ['products', '商品管理'], ['inventory', '卡密库存'], ['orders', '订单记录'], ['settings', '系统设置']];
+  return `<aside class="sidebar"><a href="/admin" class="admin-brand"><span class="admin-mark">XX</span><span>XiuXian<small>Operations console · v${esc(state.version ?? '1.0.6')}</small></span></a><span class="side-label">Workspace</span><nav class="side-nav">${links.map(([view, label]) => `<button class="${state.view === view ? 'active' : ''}" data-action="navigate" data-view="${view}">${icons[view]}${label}</button>`).join('')}</nav><div class="sidebar-foot"><strong>${esc(state.user?.username ?? state.user?.firstName ?? '管理员')}</strong>独立管理员账号<br/>数字商品交付系统 · v${esc(state.version ?? '1.0.6')}</div></aside>`;
 }
 
 function topbar() {
-  const titles = { overview: ['数据看板', '今天的经营概况与库存健康度'], products: ['商品管理', '管理分类、商品和销售规格'], inventory: ['卡密库存', '批次导入与可售库存检查'], orders: ['订单记录', '支付状态和自动发卡结果'], settings: ['系统设置', '管理员账号与 Telegram Bot 配置'] };
+  const titles = { overview: ['数据看板', '今天的经营概况与库存健康度'], users: ['用户管理', 'Telegram 买家资料与账号状态'], products: ['商品管理', '管理分类、商品和销售规格'], inventory: ['卡密库存', '批次导入与可售库存检查'], orders: ['订单记录', '支付状态和自动发卡结果'], settings: ['系统设置', '管理员账号与 Telegram Bot 配置'] };
   const [title, subtitle] = titles[state.view];
   return `<header class="main-top"><div><h1>${title}</h1><p>${subtitle}</p></div><div class="top-actions"><a class="outline-button" href="/" title="打开买家端">${icons.external} 买家端</a><button class="outline-button" data-action="refresh">刷新</button><button class="outline-button" data-action="logout">退出</button></div></header>`;
 }
@@ -132,6 +135,18 @@ function overviewView() {
 }
 function kpi(label, value, note, tone = '') {
   return `<div class="kpi"><div class="kpi-top"><span>${label}</span><span class="kpi-icon ${tone}">${icons.overview}</span></div><div class="kpi-value">${value}</div><small>${note}</small></div>`;
+}
+
+function usersView() {
+  const rows = state.users.map((user) => {
+    const displayName = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || 'Telegram 用户';
+    const username = user.username ? `@${user.username}` : '未设置用户名';
+    const search = `${displayName} ${username} ${user.telegramId}`.toLowerCase();
+    const initial = displayName.slice(0, 1).toUpperCase();
+    return `<tr data-user-row data-search="${esc(search)}"><td><div class="admin-user"><div class="admin-user-avatar"><span>${esc(initial)}</span>${user.photoUrl ? `<img src="${esc(user.photoUrl)}" alt="" referrerpolicy="no-referrer" />` : ''}</div><div><strong>${esc(displayName)}</strong><small>${esc(username)}</small></div></div></td><td><code>${esc(user.telegramId)}</code><small>${esc(user.languageCode ?? '—')}</small></td><td><span class="status ${user.isActive ? '' : 'archived'}">${user.isActive ? '正常' : '已停用'}</span></td><td>${user.orderCount}<small>已支付 ${user.paidOrderCount}</small></td><td>${money(user.spentFen)}</td><td>${new Date(user.createdAt).toLocaleDateString('zh-CN')}<small>${user.lastOrderAt ? `最近下单 ${new Date(user.lastOrderAt).toLocaleDateString('zh-CN')}` : '暂无订单'}</small></td><td><button class="outline-button ${user.isActive ? 'danger-button' : ''}" data-action="toggle-user-status" data-id="${esc(user.id)}" data-active="${user.isActive ? 'false' : 'true'}">${user.isActive ? '停用' : '恢复'}</button></td></tr>`;
+  }).join('');
+  return `<div class="section-bar user-section-bar"><div><h2>Telegram 买家</h2><p>共 <span data-user-count>${state.users.length}</span> 位用户，可按姓名、用户名或 ID 搜索</p></div><input class="user-search" type="search" placeholder="搜索用户" aria-label="搜索用户" data-user-search /></div>
+    ${state.users.length ? `<div class="table-wrap"><table><thead><tr><th>用户</th><th>Telegram ID</th><th>状态</th><th>订单</th><th>累计消费</th><th>加入时间</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="empty">暂无 Telegram 买家。</div>'}`;
 }
 
 function productsView() {
@@ -196,7 +211,7 @@ function settingsView() {
 }
 
 function render() {
-  const views = { overview: overviewView, products: productsView, inventory: inventoryView, orders: ordersView, settings: settingsView };
+  const views = { overview: overviewView, users: usersView, products: productsView, inventory: inventoryView, orders: ordersView, settings: settingsView };
   root.innerHTML = `<div class="admin-shell">${sidebar()}<section class="main">${topbar()}<main class="content">${state.message ? `<div class="notice error" style="margin-bottom:15px">${esc(state.message)}</div>` : ''}${views[state.view]()}</main></section><div class="toast" id="toast"></div></div>`;
   requestAnimationFrame(() => {
     const active = document.querySelector('.side-nav button.active');
@@ -295,6 +310,11 @@ async function onClick(event) {
       }) });
       toast('SKU 已创建，可立即导入卡密。'); await refresh(); return;
     }
+    if (action === 'toggle-user-status') {
+      await api(`/api/admin/users/${element.dataset.id}/status`, { method: 'PATCH', body: JSON.stringify({ isActive: element.dataset.active === 'true' }) });
+      toast(element.dataset.active === 'true' ? '用户已恢复。' : '用户已停用。');
+      await refresh(); return;
+    }
     if (action === 'toggle-status') {
       await api(`/api/admin/products/${element.dataset.id}`, { method: 'PATCH', body: JSON.stringify({ status: element.dataset.status }) });
       toast('商品状态已更新。'); await refresh(); return;
@@ -347,6 +367,19 @@ async function handleLoginSubmit(event) {
   }
 }
 
+function handleUserSearch(event) {
+  if (!event.target.matches('[data-user-search]')) return;
+  const query = event.target.value.trim().toLowerCase();
+  let visible = 0;
+  for (const row of document.querySelectorAll('[data-user-row]')) {
+    const matches = !query || row.dataset.search.includes(query);
+    row.hidden = !matches;
+    if (matches) visible += 1;
+  }
+  const count = document.querySelector('[data-user-count]');
+  if (count) count.textContent = String(visible);
+}
+
 async function initialize() {
   root.innerHTML = loginScreen();
   try {
@@ -357,5 +390,9 @@ async function initialize() {
 }
 
 document.addEventListener('click', (event) => void onClick(event));
+document.addEventListener('input', handleUserSearch);
+document.addEventListener('error', (event) => {
+  if (event.target.matches('.admin-user-avatar img')) event.target.remove();
+}, true);
 document.addEventListener('submit', (event) => void handleLoginSubmit(event));
 void initialize();

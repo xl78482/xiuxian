@@ -52,6 +52,10 @@ function toUser(row) {
         telegramId: row.telegram_id,
         username: row.username,
         firstName: row.first_name,
+        lastName: row.last_name,
+        languageCode: row.language_code,
+        photoUrl: row.photo_url,
+        isActive: Boolean(Number(row.is_active)),
         isAdmin: row.role === 'admin',
       }
     : null;
@@ -165,6 +169,13 @@ export class CommerceService {
 
   upsertTelegramUser(telegramUser) {
     const telegramId = String(telegramUser.id);
+    let photoUrl = null;
+    if (typeof telegramUser.photo_url === 'string' && telegramUser.photo_url.length <= 1000) {
+      try {
+        const parsed = new URL(telegramUser.photo_url);
+        if (parsed.protocol === 'https:') photoUrl = parsed.toString();
+      } catch { /* Ignore malformed Telegram profile photos. */ }
+    }
     const now = nowIso();
     const role = this.config.adminTelegramIds.has(telegramId) ? 'admin' : 'customer';
     const current = one(this.db, 'SELECT * FROM users WHERE telegram_id = ?', telegramId);
@@ -172,12 +183,13 @@ export class CommerceService {
       run(
         this.db,
         `UPDATE users
-         SET username = ?, first_name = ?, last_name = ?, language_code = ?, role = ?, updated_at = ?
+         SET username = ?, first_name = ?, last_name = ?, language_code = ?, photo_url = COALESCE(?, photo_url), role = ?, updated_at = ?
          WHERE id = ?`,
         telegramUser.username ?? null,
         telegramUser.first_name,
         telegramUser.last_name ?? null,
         telegramUser.language_code ?? null,
+        photoUrl,
         role,
         now,
         current.id,
@@ -187,14 +199,15 @@ export class CommerceService {
     const id = randomId('usr_');
     run(
       this.db,
-      `INSERT INTO users (id, telegram_id, username, first_name, last_name, language_code, role, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO users (id, telegram_id, username, first_name, last_name, language_code, photo_url, role, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       telegramId,
       telegramUser.username ?? null,
       telegramUser.first_name,
       telegramUser.last_name ?? null,
       telegramUser.language_code ?? null,
+      photoUrl,
       role,
       now,
       now,
@@ -1383,6 +1396,49 @@ export class CommerceService {
       availableCards: Number(one(this.db, `SELECT COUNT(*) AS total FROM card_credentials WHERE state = 'available' AND (expires_at IS NULL OR expires_at > ?)`, nowIso()).total),
       activeProducts: Number(one(this.db, `SELECT COUNT(*) AS total FROM products WHERE status = 'active'`).total),
     };
+  }
+
+  listAdminUsers() {
+    return many(
+      this.db,
+      `SELECT
+         u.id, u.telegram_id, u.username, u.first_name, u.last_name,
+         u.language_code, u.photo_url, u.is_active, u.created_at, u.updated_at,
+         COUNT(o.id) AS order_count,
+         SUM(CASE WHEN o.status IN ('paid', 'fulfilling', 'completed') THEN 1 ELSE 0 END) AS paid_order_count,
+         COALESCE(SUM(CASE WHEN o.status IN ('paid', 'fulfilling', 'completed') THEN o.total_price_fen ELSE 0 END), 0) AS spent_fen,
+         MAX(o.created_at) AS last_order_at
+       FROM users u
+       LEFT JOIN orders o ON o.user_id = u.id
+       WHERE u.role != 'admin' AND u.telegram_id NOT LIKE 'admin:%'
+       GROUP BY u.id
+       ORDER BY u.created_at DESC
+       LIMIT 500`,
+    ).map((user) => ({
+      id: user.id,
+      telegramId: user.telegram_id,
+      username: user.username,
+      firstName: user.first_name,
+      lastName: user.last_name,
+      languageCode: user.language_code,
+      photoUrl: user.photo_url,
+      isActive: asBoolean(user.is_active),
+      orderCount: Number(user.order_count),
+      paidOrderCount: Number(user.paid_order_count),
+      spentFen: Number(user.spent_fen),
+      lastOrderAt: user.last_order_at,
+      createdAt: user.created_at,
+      updatedAt: user.updated_at,
+    }));
+  }
+
+  updateUserStatus(actor, userId, isActive) {
+    if (typeof isActive !== 'boolean') throw new DomainError('用户状态无效。', 'invalid_request', 422);
+    const user = one(this.db, `SELECT * FROM users WHERE id = ? AND role != 'admin' AND telegram_id NOT LIKE 'admin:%'`, userId);
+    if (!user) throw new DomainError('用户不存在。', 'user_not_found', 404);
+    run(this.db, 'UPDATE users SET is_active = ?, updated_at = ? WHERE id = ?', isActive ? 1 : 0, nowIso(), userId);
+    this.audit(actor.id, isActive ? 'user.enabled' : 'user.disabled', 'user', userId, { telegramId: user.telegram_id });
+    return this.getUser(userId);
   }
 
   listAdminProducts() {

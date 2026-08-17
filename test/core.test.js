@@ -54,6 +54,37 @@ test('creates an order, preserves idempotency, and issues encrypted cards once',
   }
 });
 
+test('stores Telegram profiles and manages buyer status with order metrics', async () => {
+  const { db, commerce, admin, directory } = setup();
+  try {
+    const buyer = commerce.upsertTelegramUser({
+      id: 200000001,
+      first_name: 'Buyer',
+      last_name: 'Example',
+      username: 'buyer_example',
+      language_code: 'zh-hans',
+      photo_url: 'https://t.me/i/userpic/320/example.jpg',
+    });
+    assert.equal(buyer.photoUrl, 'https://t.me/i/userpic/320/example.jpg');
+    assert.equal(buyer.lastName, 'Example');
+    assert.equal(buyer.isActive, true);
+    const order = await commerce.createOrder(buyer, { variantId: 'sku-test', quantity: 1, idempotencyKey: 'buyer-profile-order' });
+    commerce.markMockPaymentPaid(order.orderNo, buyer.id);
+    commerce.processJobs(5);
+    const summary = commerce.listAdminUsers().find((user) => user.id === buyer.id);
+    assert.equal(commerce.listAdminUsers().some((user) => user.id === admin.id), false);
+    assert.equal(summary.orderCount, 1);
+    assert.equal(summary.paidOrderCount, 1);
+    assert.equal(summary.spentFen, 1990);
+    assert.equal(commerce.updateUserStatus(admin, buyer.id, false).isActive, false);
+    assert.equal(commerce.listAdminUsers().find((user) => user.id === buyer.id).isActive, false);
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE action = 'user.disabled' AND entity_id = ?").get(buyer.id).count, 1);
+  } finally {
+    db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('does not expose stored card plaintext in the database', async () => {
   const { db, commerce, admin, directory } = setup();
   try {

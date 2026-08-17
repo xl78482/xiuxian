@@ -201,6 +201,14 @@ export function openDatabase(databasePath) {
               updated_at TEXT NOT NULL
             );`,
     },
+    {
+      version: 4,
+      sql: `ALTER TABLE users ADD COLUMN photo_url TEXT;
+            ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1;
+            INSERT OR IGNORE INTO users (id, telegram_id, username, first_name, role, created_at, updated_at)
+            SELECT id, 'admin:' || id, username, username, 'admin', created_at, updated_at
+            FROM admin_accounts;`,
+    },
   ];
   const applied = new Set(db.prepare('SELECT version FROM schema_migrations').all().map((row) => Number(row.version)));
   for (const migration of migrations) {

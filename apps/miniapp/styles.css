@@ -327,9 +327,13 @@ body { overscroll-behavior-y: none; }
 .native-order-side span { color: #3390ec; font-size: 10px; }
 .native-order-side svg { width: 14px; height: 14px; fill: none; stroke: #a5abb4; stroke-width: 1.8; }
 .profile-card { display: flex; align-items: center; gap: 14px; padding: 18px; border-radius: 15px; background: #fff; }
-.profile-avatar { width: 56px; height: 56px; display: grid; place-items: center; flex: 0 0 56px; border-radius: 50%; color: #fff; background: #3390ec; font-size: 22px; font-weight: 800; }
-.profile-card h2 { margin: 0; color: #171b24; font-size: 18px; }
-.profile-card p { margin: 5px 0 0; color: #9299a4; font-size: 11px; }
+.profile-avatar { position: relative; width: 56px; height: 56px; display: grid; place-items: center; flex: 0 0 56px; overflow: hidden; border-radius: 50%; color: #fff; background: #3390ec; font-size: 22px; font-weight: 800; }
+.profile-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: cover; }
+.profile-avatar.has-photo span { visibility: hidden; }
+.profile-info { min-width: 0; }
+.profile-card h2 { margin: 0; overflow: hidden; color: #171b24; font-size: 18px; text-overflow: ellipsis; white-space: nowrap; }
+.profile-card p { margin: 5px 0 0; overflow: hidden; color: #65748a; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.profile-card small { display: block; margin-top: 4px; color: #9299a4; font: 10px ui-monospace, monospace; }
 .native-menu { margin-top: 12px; overflow: hidden; border-radius: 15px; background: #fff; }
 .native-menu button, .native-menu a, .native-menu > div { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 52px; padding: 0 15px; border: 0; border-bottom: 1px solid #edf0f3; color: #202731; background: transparent; text-decoration: none; }
 .native-menu > :last-child { border-bottom: 0; }

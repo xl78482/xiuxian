@@ -65,6 +65,7 @@ function seedCards(commerce, db, actor, variantId, prefix, count) {
 export function seedDemoData(runtime) {
   const { db, commerce, config } = runtime;
   const adminTelegramId = [...config.adminTelegramIds][0] ?? '100000001';
+  config.adminTelegramIds.add(String(adminTelegramId));
   const admin = commerce.upsertTelegramUser({
     id: Number(adminTelegramId),
     first_name: 'XiuXian Admin',

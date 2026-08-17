@@ -32,7 +32,7 @@ const MIME_TYPES = {
 function contentSecurityPolicy() {
   return [
     "default-src 'self'",
-    "img-src 'self' data:",
+    "img-src 'self' data: https:",
     "style-src 'self' 'unsafe-inline'",
     "script-src 'self' https://telegram.org https://*.telegram.org",
     "connect-src 'self'",
@@ -128,12 +128,14 @@ function requireIdentity(request) {
     ? adminAccounts.findById(token.userId)
     : commerce.getUser(token.userId);
   if (!identity) throw new DomainError('登录状态已失效，请重新登录。', 'unauthenticated', 401);
+  if (token.kind === 'user' && !identity.isActive) throw new DomainError('当前账号已停用，请联系售后。', 'user_disabled', 403);
   return { token, identity };
 }
 
 function requireUser(request) {
   const { token, identity } = requireIdentity(request);
   if (token.kind !== 'user') throw new DomainError('管理员会话不能执行买家操作。', 'forbidden', 403);
+  if (!identity.isActive) throw new DomainError('当前账号已停用，请联系售后。', 'user_disabled', 403);
   return identity;
 }
 
@@ -203,6 +205,11 @@ function issueSession(user) {
   return { accessToken: createSessionToken(user.id, config.sessionSecret), user };
 }
 
+function issueBuyerSession(user) {
+  if (!user.isActive) throw new DomainError('当前账号已停用，请联系售后。', 'user_disabled', 403);
+  return issueSession(user);
+}
+
 function issueAdminSession(account) {
   return { accessToken: createSessionToken(account.id, config.sessionSecret, 60 * 60 * 8, 'admin'), user: account };
 }
@@ -248,11 +255,12 @@ async function handleApi(request, response, pathname) {
       throw new DomainError('Telegram 登录数据无效。', 'invalid_request', 422);
     }
     const telegramUser = verifyTelegramInitData(body.initData, telegramBotToken());
-    return sendJson(response, 200, issueSession(commerce.upsertTelegramUser(telegramUser)));
+    const user = commerce.upsertTelegramUser(telegramUser);
+    return sendJson(response, 200, issueBuyerSession(user));
   }
 
   if (method === 'POST' && pathname === '/api/auth/development') {
-    return sendJson(response, 200, issueSession(createDevelopmentUser(assertObject(await readJson(request)))));
+    return sendJson(response, 200, issueBuyerSession(createDevelopmentUser(assertObject(await readJson(request)))));
   }
 
   if (method === 'POST' && pathname === '/api/auth/admin/password') {
@@ -285,7 +293,7 @@ async function handleApi(request, response, pathname) {
       config.telegramBotToken = telegramBotToken;
       commerce.audit(user.id, 'settings.telegram_bot_token.updated', 'app_setting', 'telegram_bot_token', { configured: true });
     }
-    return sendJson(response, 200, { telegramBotTokenConfigured: settings.isTelegramBotTokenConfigured() });
+    return sendJson(response, 200, { telegramBotTokenConfigured: Boolean(telegramBotToken()) });
   }
 
   if (method === 'PATCH' && pathname === '/api/admin/account') {
@@ -375,6 +383,17 @@ async function handleApi(request, response, pathname) {
       processed: result.processed ?? !result.error,
       errorCode: result.error ?? null,
     });
+  }
+
+  if (method === 'GET' && pathname === '/api/admin/users') {
+    requireAdmin(request);
+    return sendJson(response, 200, commerce.listAdminUsers());
+  }
+  const adminUserStatusMatch = pathname.match(/^\/api\/admin\/users\/(usr_[A-Za-z0-9-]+)\/status$/);
+  if (method === 'PATCH' && adminUserStatusMatch) {
+    const user = requireAdmin(request);
+    const body = assertObject(await readJson(request));
+    return sendJson(response, 200, commerce.updateUserStatus(user, adminUserStatusMatch[1], body.isActive));
   }
 
   if (method === 'GET' && pathname === '/api/admin/dashboard') {

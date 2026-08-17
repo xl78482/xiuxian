@@ -11,6 +11,7 @@ const state = {
   checkout: null,
   orderPoll: null,
   paymentTimer: null,
+  authRefreshPromise: null,
   checkoutIdempotencyKey: null,
   publicConfig: null,
 };
@@ -67,33 +68,55 @@ function setTelegramTheme() {
   webApp.setBackgroundColor?.('#f3f4f6');
 }
 
+async function requestLoginSession() {
+  const telegram = window.Telegram?.WebApp;
+  if (telegram?.initData) {
+    return api('/api/auth/telegram', {
+      method: 'POST',
+      body: JSON.stringify({ initData: telegram.initData }),
+      retryAuth: false,
+    });
+  }
+  const params = new URLSearchParams(location.search);
+  return api('/api/auth/development', {
+    method: 'POST',
+    body: JSON.stringify({ telegramId: Number(params.get('devUser') ?? 100000001), username: 'Local Preview' }),
+    retryAuth: false,
+  });
+}
+
+async function refreshBuyerSession() {
+  if (state.authRefreshPromise) return state.authRefreshPromise;
+  state.authRefreshPromise = requestLoginSession()
+    .then((session) => {
+      state.token = session.accessToken;
+      state.user = session.user;
+      sessionStorage.setItem('xiuxian_token', state.token);
+      return session;
+    })
+    .finally(() => { state.authRefreshPromise = null; });
+  return state.authRefreshPromise;
+}
+
 async function api(path, options = {}) {
-  const headers = new Headers(options.headers ?? {});
+  const { retryAuth = true, ...requestOptions } = options;
+  const headers = new Headers(requestOptions.headers ?? {});
   if (state.token) headers.set('Authorization', `Bearer ${state.token}`);
-  if (options.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
-  const response = await fetch(path, { ...options, headers });
+  if (requestOptions.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  const response = await fetch(path, { ...requestOptions, headers });
   const contentType = response.headers.get('content-type') ?? '';
   const payload = contentType.includes('application/json') ? await response.json() : null;
+  if (response.status === 401 && retryAuth && !path.startsWith('/api/auth/')) {
+    await refreshBuyerSession();
+    return api(path, { ...requestOptions, retryAuth: false });
+  }
   if (!response.ok) throw new Error(payload?.error?.message ?? '请求失败，请稍后重试。');
   return payload;
 }
 
 async function login() {
   setTelegramTheme();
-  const telegram = window.Telegram?.WebApp;
-  let session;
-  if (telegram?.initData) {
-    session = await api('/api/auth/telegram', { method: 'POST', body: JSON.stringify({ initData: telegram.initData }) });
-  } else {
-    const params = new URLSearchParams(location.search);
-    session = await api('/api/auth/development', {
-      method: 'POST',
-      body: JSON.stringify({ telegramId: Number(params.get('devUser') ?? 100000001), username: 'Local Preview' }),
-    });
-  }
-  state.token = session.accessToken;
-  state.user = session.user;
-  sessionStorage.setItem('xiuxian_token', state.token);
+  await refreshBuyerSession();
 }
 
 function findProduct(productId) {
@@ -179,13 +202,18 @@ function ordersView() {
 }
 
 function profileView() {
-  const initials = (state.user?.firstName ?? 'X').trim().slice(0, 1).toUpperCase();
+  const firstName = state.user?.firstName ?? '';
+  const lastName = state.user?.lastName ?? '';
+  const displayName = `${firstName} ${lastName}`.trim() || 'Telegram 用户';
+  const initials = displayName.slice(0, 1).toUpperCase();
+  const username = state.user?.username ? `@${state.user.username}` : '未设置 Telegram 用户名';
+  const photo = state.user?.photoUrl;
   return `<section class="profile-view">
-    <div class="profile-card"><div class="profile-avatar">${esc(initials)}</div><div><h2>${esc(state.user?.firstName ?? 'Telegram 用户')}</h2><p>Telegram ID ${esc(state.user?.telegramId ?? '')}</p></div></div>
+    <div class="profile-card"><div class="profile-avatar ${photo ? 'has-photo' : ''}"><span>${esc(initials)}</span>${photo ? `<img src="${esc(photo)}" alt="${esc(displayName)} 的 Telegram 头像" referrerpolicy="no-referrer" />` : ''}</div><div class="profile-info"><h2>${esc(displayName)}</h2><p>${esc(username)}</p><small>ID：${esc(state.user?.telegramId ?? '')}</small></div></div>
     <div class="native-menu">
       <button data-action="switch-tab" data-tab="orders"><span>${icon.receipt}<b>我的订单</b></span>${icon.chevron}</button>
       ${state.publicConfig?.supportUrl ? `<button data-action="open-support"><span>${icon.support}<b>联系售后</b></span>${icon.chevron}</button>` : ''}
-      <div><span>${icon.shield}<b>当前版本</b></span><small>v${esc(state.publicConfig?.version ?? '1.0.5')}</small></div>
+      <div><span>${icon.shield}<b>当前版本</b></span><small>v${esc(state.publicConfig?.version ?? '1.0.6')}</small></div>
     </div>
   </section>`;
 }
@@ -586,10 +614,15 @@ function onChange(event) {
 async function initialize() {
   app.innerHTML = '<main class="page"><div class="empty">正在连接 XiuXian…</div></main>';
   try {
-    if (state.token) {
-      try { state.user = await api('/api/me'); } catch { state.token = ''; sessionStorage.removeItem('xiuxian_token'); }
+    const telegram = window.Telegram?.WebApp;
+    if (telegram?.initData) {
+      await login();
+    } else {
+      if (state.token) {
+        try { state.user = await api('/api/me'); } catch { state.token = ''; sessionStorage.removeItem('xiuxian_token'); }
+      }
+      if (!state.user) await login();
     }
-    if (!state.user) await login();
     [state.publicConfig, state.catalog] = await Promise.all([
       api('/api/public-config'),
       api('/api/catalog'),
@@ -611,4 +644,9 @@ document.addEventListener('click', (event) => {
   });
 });
 document.addEventListener('change', onChange);
+document.addEventListener('error', (event) => {
+  if (!event.target.matches('.profile-avatar img')) return;
+  event.target.closest('.profile-avatar')?.classList.remove('has-photo');
+  event.target.remove();
+}, true);
 void initialize();
