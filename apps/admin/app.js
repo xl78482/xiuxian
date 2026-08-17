@@ -1,0 +1,264 @@
+const root = document.querySelector('#admin-app');
+const state = {
+  token: sessionStorage.getItem('xiuxian_admin_token') ?? '',
+  user: null,
+  view: 'overview',
+  dashboard: null,
+  products: [],
+  categories: [],
+  orders: [],
+  editingProductId: null,
+  message: '',
+};
+
+const icons = {
+  overview: '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
+  products: '<svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M8 9h8M8 13h5"/></svg>',
+  inventory: '<svg viewBox="0 0 24 24"><path d="M4 7h16v13H4z"/><path d="m4 7 3-4h10l3 4M8 11h8"/></svg>',
+  orders: '<svg viewBox="0 0 24 24"><path d="M4 3h16v18l-3-2-3 2-3-2-3 2-3-2V3Z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
+  external: '<svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9"/><path d="M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6"/></svg>',
+  plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+};
+
+function esc(value) {
+  return String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
+}
+function money(fen) { return `¥${(Number(fen) / 100).toFixed(2)}`; }
+function priceToFen(value) {
+  const text = String(value ?? '').trim();
+  if (!/^\d+(?:\.\d{1,2})?$/.test(text)) throw new Error('价格必须是最多两位小数的正数。');
+  const [whole, fraction = ''] = text.split('.');
+  const fen = Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
+  if (!Number.isSafeInteger(fen) || fen < 1) throw new Error('价格必须大于 0。');
+  return fen;
+}
+function statusLabel(status) {
+  return {
+    active: '销售中', draft: '草稿', archived: '已归档', pending_payment: '待支付',
+    payment_confirming: '确认中', paid: '已支付', fulfilling: '发卡中', completed: '已完成',
+    payment_expired: '已过期', canceled: '已关闭', fulfillment_failed: '发卡异常', refunded: '已退款',
+  }[status] ?? status;
+}
+function statusClass(status) { return ['draft', 'archived', 'canceled', 'payment_expired'].includes(status) ? status : ''; }
+
+async function api(path, options = {}) {
+  const headers = new Headers(options.headers ?? {});
+  if (state.token) headers.set('Authorization', `Bearer ${state.token}`);
+  if (options.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  const response = await fetch(path, { ...options, headers });
+  const payload = response.headers.get('content-type')?.includes('application/json') ? await response.json() : null;
+  if (!response.ok) throw new Error(payload?.error?.message ?? '请求失败。');
+  return payload;
+}
+
+async function login() {
+  if (state.token) {
+    try {
+      state.user = await api('/api/me');
+      if (!state.user.isAdmin) throw new Error('当前账号不是管理员。');
+      return;
+    } catch { state.token = ''; sessionStorage.removeItem('xiuxian_admin_token'); }
+  }
+  const params = new URLSearchParams(location.search);
+  const telegram = window.Telegram?.WebApp;
+  const response = telegram?.initData
+    ? await api('/api/auth/admin/telegram', {
+        method: 'POST',
+        body: JSON.stringify({ initData: telegram.initData }),
+      })
+    : await api('/api/auth/development', {
+        method: 'POST',
+        body: JSON.stringify({ telegramId: Number(params.get('devUser') ?? 100000001), username: 'Local Admin' }),
+      });
+  if (!response.user.isAdmin) throw new Error('当前 Telegram 账号不在管理员白名单。');
+  state.token = response.accessToken;
+  state.user = response.user;
+  sessionStorage.setItem('xiuxian_admin_token', state.token);
+}
+
+async function loadViewData() {
+  state.dashboard = await api('/api/admin/dashboard');
+  if (state.view === 'overview' || state.view === 'products' || state.view === 'inventory') {
+    [state.products, state.categories] = await Promise.all([api('/api/admin/products'), api('/api/admin/categories')]);
+  }
+  if (state.view === 'orders') state.orders = await api('/api/admin/orders');
+}
+
+function sidebar() {
+  const links = [['overview', '数据看板'], ['products', '商品管理'], ['inventory', '卡密库存'], ['orders', '订单记录']];
+  return `<aside class="sidebar"><a href="/admin" class="admin-brand"><span class="admin-mark">XX</span><span>XiuXian<small>Operations console</small></span></a><span class="side-label">Workspace</span><nav class="side-nav">${links.map(([view, label]) => `<button class="${state.view === view ? 'active' : ''}" data-action="navigate" data-view="${view}">${icons[view]}${label}</button>`).join('')}</nav><div class="sidebar-foot"><strong>${esc(state.user?.firstName ?? '管理员')}</strong>Telegram ID ${esc(state.user?.telegramId ?? '')}<br/>数字商品交付系统</div></aside>`;
+}
+
+function topbar() {
+  const titles = { overview: ['数据看板', '今天的经营概况与库存健康度'], products: ['商品管理', '管理分类、商品和销售规格'], inventory: ['卡密库存', '批次导入与可售库存检查'], orders: ['订单记录', '支付状态和自动发卡结果'] };
+  const [title, subtitle] = titles[state.view];
+  return `<header class="main-top"><div><h1>${title}</h1><p>${subtitle}</p></div><div class="top-actions"><a class="outline-button" href="/" title="打开买家端">${icons.external} 买家端</a><button class="outline-button" data-action="refresh">刷新</button></div></header>`;
+}
+
+function overviewView() {
+  const d = state.dashboard ?? {};
+  return `<div class="kpi-grid">
+    ${kpi('成交收入', money(d.paidRevenueFen), '已确认订单', 'gold')}
+    ${kpi('支付订单', d.paidOrders ?? 0, '已确认付款')}
+    ${kpi('已发卡', d.issuedCards ?? 0, '累计发放')}
+    ${kpi('可售库存', d.availableCards ?? 0, d.failedFulfillments ? `${d.failedFulfillments} 个发卡异常` : '库存状态正常', d.failedFulfillments ? 'coral' : '')}
+  </div>
+  <div class="section-bar"><div><h2>运营摘要</h2><p>核心指标来自订单与加密卡池实时统计</p></div><button class="solid-button" data-action="navigate" data-view="products">管理商品</button></div>
+  <div class="table-wrap"><table><thead><tr><th>指标</th><th>数值</th><th>说明</th></tr></thead><tbody>
+    <tr><td><strong>已完成订单</strong></td><td>${d.completedOrders ?? 0}</td><td><small>已成功完成卡密发放的订单</small></td></tr>
+    <tr><td><strong>在售商品</strong></td><td>${d.activeProducts ?? 0}</td><td><small>买家端当前可见的商品数量</small></td></tr>
+    <tr><td><strong>发卡异常</strong></td><td>${d.failedFulfillments ?? 0}</td><td><small>需要人工检查或重试的订单</small></td></tr>
+  </tbody></table></div>`;
+}
+function kpi(label, value, note, tone = '') {
+  return `<div class="kpi"><div class="kpi-top"><span>${label}</span><span class="kpi-icon ${tone}">${icons.overview}</span></div><div class="kpi-value">${value}</div><small>${note}</small></div>`;
+}
+
+function productsView() {
+  const editing = state.products.find((product) => product.id === state.editingProductId);
+  return `<div class="section-bar"><div><h2>商品与规格</h2><p>价格使用人民币分存储，库存由卡密池自动计算</p></div><div class="top-actions"><button class="outline-button" data-action="toggle-panel" data-panel="category-form">${icons.plus} 新建分类</button><button class="solid-button" data-action="toggle-panel" data-panel="product-form">${icons.plus} 新建商品</button></div></div>
+  <div id="category-form" class="form-panel" hidden>
+    <h3>创建分类</h3><div class="field"><label>分类名称</label><input name="category-name" placeholder="例如：软件会员" /></div><div class="field"><label>Slug</label><input name="category-slug" placeholder="software-membership" /></div><div class="field"><label>排序</label><input name="category-position" type="number" value="0" min="0" /></div><div class="form-actions"><button class="outline-button" data-action="toggle-panel" data-panel="category-form">取消</button><button class="solid-button" data-action="create-category">保存分类</button></div>
+  </div>
+  <div id="product-form" class="form-panel" hidden>
+    <h3>创建商品</h3>
+    <div class="field"><label>商品名称</label><input name="product-title" placeholder="例如：Stream Pass" /></div>
+    <div class="field"><label>Slug</label><input name="product-slug" placeholder="stream-pass" /></div>
+    <div class="field"><label>分类</label><select name="product-category"><option value="">未分类</option>${state.categories.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}</select></div>
+    <div class="field"><label>状态</label><select name="product-status"><option value="draft">草稿</option><option value="active">立即上架</option></select></div>
+    <div class="field full"><label>商品描述</label><textarea name="product-description" placeholder="展示在买家端的简短说明"></textarea></div>
+    <div class="field full"><label>使用说明</label><textarea name="product-instructions" placeholder="支付后给买家的兑换说明"></textarea></div>
+    <div class="field full"><label>封面路径</label><input name="product-image" value="/assets/stream-pass.png" /></div>
+    <div class="form-actions"><button class="outline-button" data-action="toggle-panel" data-panel="product-form">取消</button><button class="solid-button" data-action="create-product">保存商品</button></div>
+  </div>
+  ${editing ? productEditor(editing) : ''}
+  <div class="product-list">${state.products.length ? state.products.map(productRow).join('') : '<div class="empty">暂无商品。</div>'}</div>`;
+}
+function productRow(product) {
+  return `<article class="product-row"><div><h3>${esc(product.title)}</h3><p>${esc(product.categoryName ?? '未分类')} · ${esc(product.slug)}</p><span class="status ${statusClass(product.status)}">${statusLabel(product.status)}</span></div><div class="variant-chips">${product.variants.length ? product.variants.map((v) => `<span class="variant-chip ${v.stock < 5 ? 'low' : ''}">${esc(v.name)} <b>${money(v.priceFen)}</b><small>库存 ${v.stock} · 已售 ${v.sold}</small></span>`).join('') : '<small>暂无规格</small>'}</div><div class="row-actions"><button class="outline-button" data-action="edit-product" data-id="${esc(product.id)}">编辑</button><button class="outline-button" data-action="toggle-status" data-id="${esc(product.id)}" data-status="${product.status === 'active' ? 'archived' : 'active'}">${product.status === 'active' ? '下架' : '上架'}</button></div></article>`;
+}
+function productEditor(product) {
+  return `<div class="form-panel" id="product-editor"><h3>编辑：${esc(product.title)}</h3>
+    <div class="field"><label>商品名称</label><input name="edit-title" value="${esc(product.title)}" /></div><div class="field"><label>Slug</label><input name="edit-slug" value="${esc(product.slug)}" /></div>
+    <div class="field"><label>分类</label><select name="edit-category"><option value="">未分类</option>${state.categories.map((c) => `<option value="${esc(c.id)}" ${c.id === product.categoryId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div><div class="field"><label>状态</label><select name="edit-status">${['draft','active','archived'].map((status) => `<option value="${status}" ${status === product.status ? 'selected' : ''}>${statusLabel(status)}</option>`).join('')}</select></div>
+    <div class="field full"><label>描述</label><textarea name="edit-description">${esc(product.description)}</textarea></div><div class="field full"><label>使用说明</label><textarea name="edit-instructions">${esc(product.instructions)}</textarea></div><div class="field full"><label>封面路径</label><input name="edit-image" value="${esc(product.imageUrl ?? '')}" /></div>
+    <div class="form-actions"><button class="outline-button" data-action="close-editor">取消</button><button class="solid-button" data-action="save-product" data-id="${esc(product.id)}">保存修改</button></div>
+    <h3>新增规格</h3><div class="field"><label>规格名</label><input name="variant-name" placeholder="例如：年度会员" /></div><div class="field"><label>SKU</label><input name="variant-sku" placeholder="STREAM-12M" /></div><div class="field"><label>价格（元）</label><input name="variant-price" type="number" min="0.01" step="0.01" placeholder="99.00" /></div><div class="field"><label>单次限购</label><input name="variant-limit" type="number" min="1" max="20" value="5" /></div><div class="form-actions"><button class="outline-button" data-action="create-variant" data-id="${esc(product.id)}">新增规格</button></div>
+  </div>`;
+}
+
+function inventoryView() {
+  const variants = state.products.flatMap((product) => product.variants.map((variant) => ({ ...variant, productTitle: product.title, productId: product.id })));
+  return `<div class="section-bar"><div><h2>批量导入卡密</h2><p>每行一张卡密，支持：卡密、密码、备注，用逗号或 Tab 分隔</p></div></div>
+    <div class="form-panel"><h3>导入新批次</h3><div class="field"><label>商品规格</label><select name="card-variant">${variants.map((v) => `<option value="${esc(v.id)}">${esc(v.productTitle)} · ${esc(v.name)} · 当前 ${v.stock}</option>`).join('')}</select></div><div class="field"><label>批次名称</label><input name="card-label" placeholder="例如：2026-08-17 新批次" /></div><div class="field full"><label>卡密内容</label><textarea name="card-raw" placeholder="CODE-001,PASSWORD-001,备注\nCODE-002,,无密码"></textarea></div><div class="form-actions"><button class="solid-button" data-action="import-cards">导入并加密</button></div></div>
+    <div class="section-bar"><div><h2>当前库存</h2><p>库存少于 5 张会标记为低库存</p></div></div><div class="table-wrap"><table><thead><tr><th>商品</th><th>规格</th><th>价格</th><th>可售</th><th>已售</th></tr></thead><tbody>${variants.map((v) => `<tr><td>${esc(v.productTitle)}</td><td><strong>${esc(v.name)}</strong><small>${esc(v.sku)}</small></td><td>${money(v.priceFen)}</td><td><span class="status ${v.stock < 5 ? 'payment_expired' : ''}">${v.stock}</span></td><td>${v.sold}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+function ordersView() {
+  return `<div class="section-bar"><div><h2>订单记录</h2><p>最近 200 条订单，支付回调和发卡状态分开显示</p></div></div><div class="table-wrap"><table><thead><tr><th>订单</th><th>买家商品</th><th>金额</th><th>支付</th><th>发卡</th><th>创建时间</th><th>处理</th></tr></thead><tbody>${state.orders.length ? state.orders.map((order) => `<tr><td><strong>${esc(order.orderNo)}</strong><small>${new Date(order.createdAt).toLocaleString('zh-CN')}</small></td><td>${esc(order.productTitle)}<small>${esc(order.variantName)} × ${order.quantity}</small></td><td>${money(order.totalPriceFen)}</td><td><span class="status ${statusClass(order.payment.status)}">${statusLabel(order.payment.status === 'paid' ? 'paid' : order.status)}</span></td><td><span class="status ${statusClass(order.status)}">${statusLabel(order.status)}</span></td><td>${new Date(order.createdAt).toLocaleDateString('zh-CN')}</td><td>${order.status === 'fulfillment_failed' ? `<button class="outline-button" data-action="retry-fulfillment" data-order-no="${esc(order.orderNo)}">重试发卡</button>` : '<small>—</small>'}</td></tr>`).join('') : '<tr><td colspan="7"><div class="empty">暂无订单。</div></td></tr>'}</tbody></table></div>`;
+}
+
+function render() {
+  const views = { overview: overviewView, products: productsView, inventory: inventoryView, orders: ordersView };
+  root.innerHTML = `<div class="admin-shell">${sidebar()}<section class="main">${topbar()}<main class="content">${state.message ? `<div class="notice error" style="margin-bottom:15px">${esc(state.message)}</div>` : ''}${views[state.view]()}</main></section><div class="toast" id="toast"></div></div>`;
+}
+
+function toast(message) {
+  const element = document.querySelector('#toast');
+  if (!element) return;
+  element.textContent = message;
+  element.classList.add('show');
+  setTimeout(() => element.classList.remove('show'), 2300);
+}
+
+async function refresh() {
+  state.message = '';
+  try { await loadViewData(); render(); } catch (error) { state.message = error.message; render(); }
+}
+
+async function onClick(event) {
+  const element = event.target.closest('[data-action]');
+  if (!element) return;
+  const action = element.dataset.action;
+  try {
+    if (action === 'reload') { location.reload(); return; }
+    if (action === 'navigate') { state.view = element.dataset.view; await refresh(); return; }
+    if (action === 'refresh') { await refresh(); toast('数据已刷新。'); return; }
+    if (action === 'toggle-panel') { const panel = document.querySelector(`#${element.dataset.panel}`); if (panel) panel.hidden = !panel.hidden; return; }
+    if (action === 'edit-product') { state.editingProductId = element.dataset.id; render(); document.querySelector('#product-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+    if (action === 'close-editor') { state.editingProductId = null; render(); return; }
+    if (action === 'create-category') {
+      const form = document.querySelector('#category-form');
+      await api('/api/admin/categories', { method: 'POST', body: JSON.stringify({
+        name: form.querySelector('[name="category-name"]').value,
+        slug: form.querySelector('[name="category-slug"]').value,
+        position: Number(form.querySelector('[name="category-position"]').value || 0),
+      }) });
+      toast('分类已创建。'); await refresh(); return;
+    }
+    if (action === 'create-product') {
+      const form = document.querySelector('#product-form');
+      await api('/api/admin/products', { method: 'POST', body: JSON.stringify({
+        title: form.querySelector('[name="product-title"]').value,
+        slug: form.querySelector('[name="product-slug"]').value,
+        categoryId: form.querySelector('[name="product-category"]').value || null,
+        status: form.querySelector('[name="product-status"]').value,
+        description: form.querySelector('[name="product-description"]').value,
+        instructions: form.querySelector('[name="product-instructions"]').value,
+        imageUrl: form.querySelector('[name="product-image"]').value || null,
+      }) });
+      toast('商品已创建。'); await refresh(); return;
+    }
+    if (action === 'save-product') {
+      const form = document.querySelector('#product-editor');
+      await api(`/api/admin/products/${element.dataset.id}`, { method: 'PATCH', body: JSON.stringify({
+        title: form.querySelector('[name="edit-title"]').value,
+        slug: form.querySelector('[name="edit-slug"]').value,
+        categoryId: form.querySelector('[name="edit-category"]').value || null,
+        status: form.querySelector('[name="edit-status"]').value,
+        description: form.querySelector('[name="edit-description"]').value,
+        instructions: form.querySelector('[name="edit-instructions"]').value,
+        imageUrl: form.querySelector('[name="edit-image"]').value || null,
+      }) });
+      state.editingProductId = null; toast('商品已保存。'); await refresh(); return;
+    }
+    if (action === 'create-variant') {
+      const form = document.querySelector('#product-editor');
+      await api('/api/admin/variants', { method: 'POST', body: JSON.stringify({
+        productId: element.dataset.id,
+        name: form.querySelector('[name="variant-name"]').value,
+        sku: form.querySelector('[name="variant-sku"]').value,
+        priceFen: priceToFen(form.querySelector('[name="variant-price"]').value),
+        maxPerOrder: Number(form.querySelector('[name="variant-limit"]').value || 5),
+        position: 0,
+        isActive: true,
+      }) });
+      toast('SKU 已创建，可立即导入卡密。'); await refresh(); return;
+    }
+    if (action === 'toggle-status') {
+      await api(`/api/admin/products/${element.dataset.id}`, { method: 'PATCH', body: JSON.stringify({ status: element.dataset.status }) });
+      toast('商品状态已更新。'); await refresh(); return;
+    }
+    if (action === 'retry-fulfillment') {
+      await api(`/api/admin/orders/${element.dataset.orderNo}/retry-fulfillment`, { method: 'POST' });
+      toast('发卡任务已重新入队。'); await refresh(); return;
+    }
+    if (action === 'import-cards') {
+      const form = element.closest('.form-panel');
+      await api('/api/admin/cards/import', { method: 'POST', body: JSON.stringify({
+        variantId: form.querySelector('[name="card-variant"]').value,
+        batchLabel: form.querySelector('[name="card-label"]').value,
+        rawCards: form.querySelector('[name="card-raw"]').value,
+      }) });
+      toast('卡密已加密并导入。'); await refresh(); return;
+    }
+  } catch (error) { state.message = error.message; render(); }
+}
+
+async function initialize() {
+  root.innerHTML = '<div class="login-screen"><div class="login-box"><h1>正在连接 Console</h1><p>验证 Telegram 管理员身份并载入运营数据。</p></div></div>';
+  try { await login(); await refresh(); } catch (error) { root.innerHTML = `<div class="login-screen"><div class="login-box"><h1>无法进入后台</h1><p>${esc(error.message)}</p><button class="solid-button" data-action="reload">重新连接</button></div></div>`; }
+}
+
+document.addEventListener('click', (event) => void onClick(event));
+void initialize();

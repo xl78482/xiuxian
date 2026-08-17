@@ -1,1 +1,124 @@
-# xiuxian
+# XiuXian
+
+Telegram Mini App 自动发卡平台。当前版本使用零第三方运行时依赖的 Node.js 22 + SQLite，支付层通过适配器隔离，首个适配器为 DujiaoPay，默认开发环境使用 mock 支付。
+
+## 已实现
+
+- Telegram Mini App 登录，服务端验签 `initData`
+- 商品、分类、SKU、库存和卡密批次管理
+- AES-256-GCM 加密存储卡密，HMAC 指纹查重
+- 订单幂等、库存预留、支付回调幂等、异步发卡
+- DujiaoPay HMAC 请求签名和原始 Webhook body 验签
+- Tron USDT 支付配置，保留后续 EPUSDT 等适配器边界
+- 买家端订单、支付轮询、卡密查看/复制、支付会话恢复、售后入口
+- 管理后台数据看板、商品/SKU、卡密导入、订单和发卡重试
+- API 与 Worker 分离，SQLite 数据目录持久化，Docker Compose 生产编排
+
+## 本地运行
+
+要求 Node.js `22.5+`，因为项目使用 Node 内置 `node:sqlite`。
+
+```sh
+cp .env.example .env
+```
+
+开发环境必须将 `.env` 设置为 mock 支付，并准备两个随机密钥：
+
+```sh
+PAYMENT_PROVIDER=mock
+SESSION_SECRET=$(node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))")
+CARD_ENCRYPTION_KEY=$(node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))")
+```
+
+也可以直接执行：
+
+```sh
+node scripts/generate-assets.js
+node scripts/seed.js
+npm test
+npm start
+```
+
+开发服务：
+
+- 买家端：`http://localhost:3000/`
+- 管理后台：`http://localhost:3000/admin`
+- 健康检查：`http://localhost:3000/api/health`
+
+开发环境的默认管理员 Telegram ID 是 `100000001`，可通过 `?devUser=100000001` 切换测试用户。生产环境会关闭开发登录。
+
+## DujiaoPay 配置
+
+生产环境必须设置：
+
+```dotenv
+NODE_ENV=production
+APP_ORIGIN=https://mini.example.com
+PAYMENT_PROVIDER=dujiaopay
+TELEGRAM_BOT_TOKEN=...
+ADMIN_TELEGRAM_IDS=123456789
+DUJIAOPAY_BASE_URL=https://www.dujiaopay.com
+DUJIAOPAY_KEY_ID=...
+DUJIAOPAY_SECRET=...
+DUJIAOPAY_WEBHOOK_SECRET=...
+DUJIAOPAY_CHAIN=tron
+DUJIAOPAY_TOKEN_ID=tron-usdt
+SUPPORT_URL=https://t.me/your_support_bot
+```
+
+`SESSION_SECRET` 至少 32 个字符，`CARD_ENCRYPTION_KEY` 必须是 64 位十六进制字符。密钥只放在服务端环境变量，不要写入前端、数据库或 Git。
+
+在 DujiaoPay 控制台将 Webhook 指向：
+
+```text
+https://mini.example.com/api/webhooks/dujiaopay
+```
+
+适配器发送 `DJP-Key-ID`、`DJP-Timestamp`、`DJP-Nonce`、`DJP-Signature`，并校验 `DJP-Webhook-ID` 去重。Webhook 收到支付事件后只入队发卡，实际发卡由 Worker 处理。
+
+## Docker 部署
+
+先准备生产 `.env` 和持久化目录：
+
+```sh
+mkdir -p data
+chmod 700 data
+docker compose up -d --build
+
+docker compose ps
+docker compose logs -f xiuxian-worker
+```
+
+API 和 Worker 必须共享同一个 `./data`，不要只启动 API。反向代理负责 TLS，`APP_ORIGIN` 必须使用 HTTPS。上线前应限制服务器防火墙只暴露反向代理端口，并为 `data/` 做备份。
+
+## API 关键路径
+
+- `POST /api/auth/telegram`：买家 Telegram 登录
+- `GET /api/catalog`：公开商品目录
+- `POST /api/orders`：创建订单，需要 `Idempotency-Key`
+- `GET /api/orders/:orderNo`：查看自己的订单
+- `POST /api/orders/:orderNo/payment-session`：恢复支付会话
+- `POST /api/webhooks/dujiaopay`：DujiaoPay 回调
+- `POST /api/auth/admin/telegram`：Telegram 管理员登录
+- `GET /api/admin/dashboard`：运营数据
+- `POST /api/admin/cards/import`：批量加密导入卡密
+- `POST /api/admin/orders/:orderNo/retry-fulfillment`：异常订单重新发卡
+
+## 安全边界
+
+- 卡密明文只在发放给已授权买家时解密，数据库只保存密文和指纹。
+- 订单金额、币种、链和商户订单号由服务端核对，不能信任前端或回调中的展示字段。
+- 支付回调按原始字节验签，重复 Webhook 和重复发卡任务均幂等。
+- 生产环境强制 HTTPS、Telegram Bot Token，并禁用 mock 支付和开发登录。
+- 商品删除使用归档，不物理删除历史关联数据。
+
+## 目录
+
+```text
+apps/api       HTTP API 和静态文件服务
+apps/miniapp   买家端 Mini App
+apps/admin     管理后台
+apps/worker    支付对账与自动发卡 Worker
+packages/core  配置、SQLite、加密和订单领域服务
+packages/payment 支付适配器接口与 DujiaoPay 实现
+```

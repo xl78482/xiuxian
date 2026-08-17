@@ -1,0 +1,33 @@
+services:
+  xiuxian:
+    build: .
+    init: true
+    env_file: .env
+    environment:
+      NODE_ENV: production
+    command: node apps/api/server.js
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  xiuxian-worker:
+    build: .
+    init: true
+    env_file: .env
+    environment:
+      NODE_ENV: production
+    command: node apps/worker/worker.js
+    depends_on:
+      xiuxian:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

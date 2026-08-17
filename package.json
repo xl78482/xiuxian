@@ -1,0 +1,17 @@
+{
+  "name": "xiuxian",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Telegram Mini App automatic digital-card delivery platform",
+  "scripts": {
+    "dev": "node --watch apps/api/server.js",
+    "start": "NODE_ENV=production node apps/api/server.js",
+    "worker": "node apps/worker/worker.js",
+    "seed": "node scripts/seed.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  }
+}
