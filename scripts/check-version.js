@@ -7,8 +7,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const packageMetadata = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const version = packageMetadata.version;
 
-if (typeof version !== 'string' || !/^\d+\.\d+\.\d+$/.test(version)) {
-  throw new Error('package.json version must use MAJOR.MINOR.PATCH format.');
+if (typeof version !== 'string' || !/^1\.0\.\d+$/.test(version)) {
+  throw new Error('package.json version must use the strict 1.0.N format.');
 }
 
 const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
@@ -39,36 +39,29 @@ function git(args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
 }
 
-function numericVersion(value) {
-  return value.replace(/^v/, '').split('.').map(Number);
-}
-
-function compareVersions(left, right) {
-  const a = numericVersion(left);
-  const b = numericVersion(right);
-  for (let index = 0; index < 3; index += 1) {
-    if (a[index] !== b[index]) return a[index] - b[index];
-  }
-  return 0;
-}
-
 let latestTag = null;
 try {
-  latestTag = git(['describe', '--tags', '--abbrev=0', '--match', 'v[0-9]*']);
+  latestTag = git(['describe', '--tags', '--abbrev=0', '--match', 'v1.0.*']);
 } catch {
   // The first release has no existing version tag.
 }
 
 const currentTag = `v${version}`;
-if (latestTag && latestTag !== currentTag && compareVersions(currentTag, latestTag) <= 0) {
-  throw new Error(`Version ${version} must be newer than latest release ${latestTag}.`);
-}
-if (latestTag === currentTag) {
-  try {
-    execFileSync('git', ['diff', '--quiet', latestTag, '--', '.'], { cwd: root, stdio: 'ignore' });
-  } catch {
-    throw new Error(`Tracked files changed after ${latestTag}; increase the version before pushing.`);
+let expectedNext = 'v1.0.0';
+if (latestTag) {
+  const latestPatch = Number(latestTag.split('.')[2]);
+  expectedNext = `v1.0.${latestPatch + 1}`;
+  if (latestTag === currentTag) {
+    try {
+      execFileSync('git', ['diff', '--quiet', latestTag, '--', '.'], { cwd: root, stdio: 'ignore' });
+    } catch {
+      throw new Error(`Tracked files changed after ${latestTag}; the next version must be ${expectedNext}.`);
+    }
+  } else if (currentTag !== expectedNext) {
+    throw new Error(`Version must advance exactly one step: expected ${expectedNext}, received ${currentTag}.`);
   }
+} else if (currentTag !== expectedNext) {
+  throw new Error(`The first release must be ${expectedNext}.`);
 }
 
-console.log(JSON.stringify({ version, changelog: true, readme: true, latestTag }));
+console.log(JSON.stringify({ version, changelog: true, readme: true, latestTag, expectedNext }));
