@@ -3,6 +3,9 @@ const state = {
   token: sessionStorage.getItem('xiuxian_token') ?? '',
   user: null,
   catalog: [],
+  activeTab: 'shop',
+  orders: null,
+  ordersLoading: false,
   selectedCategory: 'all',
   selectedVariants: new Map(),
   checkout: null,
@@ -19,6 +22,12 @@ const icon = {
   close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>',
   copy: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="1"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/></svg>',
   settings: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8h10M7 12h10M7 16h6"/></svg>',
+  home: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 11 9-8 9 8v10H3V11Z"/><path d="M9 21v-7h6v7"/></svg>',
+  user: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3-7 8-7s8 3 8 7"/></svg>',
+  package: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 7 8-4 8 4-8 4-8-4Z"/><path d="M4 7v10l8 4 8-4V7M12 11v10"/></svg>',
+  support: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13v-2a8 8 0 0 1 16 0v2"/><path d="M4 13h3v6H5a1 1 0 0 1-1-1v-5ZM20 13h-3v6h2a1 1 0 0 0 1-1v-5ZM17 19c0 1-2 2-5 2"/></svg>',
+  chevron: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>',
+  refresh: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5M4 18v-5h5"/><path d="M6.1 9a7 7 0 0 1 11.5-2.4L20 11M4 13l2.4 4.4A7 7 0 0 0 17.9 15"/></svg>',
 };
 
 function esc(value) {
@@ -53,8 +62,8 @@ function setTelegramTheme() {
   if (!webApp) return;
   webApp.ready();
   webApp.expand();
-  webApp.setHeaderColor?.('#f5f7fb');
-  webApp.setBackgroundColor?.('#f5f7fb');
+  webApp.setHeaderColor?.('#f3f4f6');
+  webApp.setBackgroundColor?.('#f3f4f6');
 }
 
 async function api(path, options = {}) {
@@ -95,16 +104,21 @@ function findVariant(product, variantId) {
 }
 
 function renderHeader() {
+  const titles = {
+    shop: ['XiuXian', '数字商品商城'],
+    orders: ['我的订单', '支付与交付记录'],
+    profile: ['我的', '账号与服务'],
+  };
+  const [title, subtitle] = titles[state.activeTab];
   return `
-    <header class="topbar">
-      <a class="brand" href="/" aria-label="返回 XiuXian 首页">
-        <span class="brand-mark">XX</span>
-        <span>XiuXian<small>Digital delivery · v${esc(state.publicConfig?.version ?? '1.0.2')}</small></span>
-      </a>
-      <nav class="nav-actions" aria-label="操作">
-        ${state.user?.isAdmin ? `<a class="icon-button" href="/admin" title="管理后台" aria-label="管理后台">${icon.settings}</a>` : ''}
-        <button class="icon-button" data-action="open-orders" title="我的订单" aria-label="我的订单">${icon.receipt}</button>
-      </nav>
+    <header class="mini-header">
+      <div class="mini-header-title">
+        ${state.activeTab === 'shop' ? '<span class="mini-logo">XX</span>' : ''}
+        <div><h1>${title}</h1><p>${subtitle}</p></div>
+      </div>
+      <div class="mini-header-actions">
+        ${state.activeTab === 'orders' ? `<button class="mini-icon-button" data-action="refresh-orders" title="刷新订单" aria-label="刷新订单">${icon.refresh}</button>` : ''}
+      </div>
     </header>`;
 }
 
@@ -119,58 +133,66 @@ function productCard(product) {
         <div class="product-meta"><span>${esc(product.category?.name ?? '数字商品')}</span><span>已售 ${selected?.sold ?? 0}</span></div>
         <h3 class="product-title">${esc(product.title)}</h3>
         <p class="product-description">${esc(product.description)}</p>
+        <div class="product-price"><strong>${money(selected?.priceFen ?? 0)}</strong><span>${selected?.stock ?? 0} 份可售</span></div>
         <div class="variant-row">
           <select class="variant-select" data-product-id="${esc(product.id)}" aria-label="选择 ${esc(product.title)} 规格">
-            ${product.variants.map((variant) => `<option value="${esc(variant.id)}" ${variant.id === selectedId ? 'selected' : ''} ${variant.stock < 1 ? 'disabled' : ''}>${esc(variant.name)} · ${money(variant.priceFen)}${variant.stock < 1 ? ' · 售罄' : ''}</option>`).join('')}
+            ${product.variants.map((variant) => `<option value="${esc(variant.id)}" ${variant.id === selectedId ? 'selected' : ''} ${variant.stock < 1 ? 'disabled' : ''}>${esc(variant.name)}${variant.stock < 1 ? ' · 售罄' : ''}</option>`).join('')}
           </select>
-          <button class="buy-button" data-action="open-checkout" data-product-id="${esc(product.id)}" title="购买 ${esc(product.title)}" aria-label="购买 ${esc(product.title)}" ${!selected || selected.stock < 1 ? 'disabled' : ''}>${icon.bag}</button>
+          <button class="buy-button" data-action="open-checkout" data-product-id="${esc(product.id)}" title="购买 ${esc(product.title)}" aria-label="购买 ${esc(product.title)}" ${!selected || selected.stock < 1 ? 'disabled' : ''}>${icon.bag}<span>购买</span></button>
         </div>
-        <div class="stock-line"><span>${esc(selected?.name ?? '')}</span><strong>${selected?.stock ?? 0} 份可售</strong></div>
       </div>
     </article>`;
 }
 
-function renderCatalog() {
+function renderTabbar() {
+  const orderCount = state.orders?.length ?? 0;
+  const tabs = [
+    ['shop', '商城', icon.home],
+    ['orders', '订单', icon.receipt],
+    ['profile', '我的', icon.user],
+  ];
+  return `<nav class="mini-tabbar" aria-label="主导航">${tabs.map(([tab, label, glyph]) => `<button class="mini-tab ${state.activeTab === tab ? 'active' : ''}" data-action="switch-tab" data-tab="${tab}">${glyph}<span>${label}</span>${tab === 'orders' ? `<b>${orderCount}</b>` : ''}</button>`).join('')}</nav>`;
+}
+
+function shopView() {
   const categoryMap = new Map();
-  for (const product of state.catalog) {
-    if (product.category) categoryMap.set(product.category.id, product.category);
-  }
+  for (const product of state.catalog) if (product.category) categoryMap.set(product.category.id, product.category);
   const products = state.selectedCategory === 'all'
     ? state.catalog
     : state.catalog.filter((product) => product.category?.id === state.selectedCategory);
-  app.innerHTML = `
-    <div class="app-shell">
-      ${renderHeader()}
-      <main class="page">
-        <section class="hero">
-          <div>
-            <span class="eyebrow">Telegram instant store</span>
-            <h1>支付确认后，<em>卡密即刻</em>送达。</h1>
-            <p class="hero-copy">浏览会员、点卡和兑换码。每一笔订单由服务端验证付款后自动从加密卡池发放，订单页随时可再次查看。</p>
-            <div class="hero-note"><span></span>当前支付方式：USDT · TRON</div>
-          </div>
-          <div class="hero-art" aria-hidden="true">
-            <div class="hero-orbit"></div>
-            <div class="hero-card"><div class="card-top"><span>XIUXIAN</span><span>01</span></div><div class="card-symbol">↗</div><div class="card-bottom">DIGITAL<br/>ACCESS</div></div>
-          </div>
-        </section>
-        <section aria-labelledby="catalog-title">
-          <div class="section-head"><div><h2 id="catalog-title">精选数字商品</h2><p>即时交付 · 可重复查看</p></div><p>${state.user ? `已登录：${esc(state.user.firstName)}` : ''}</p></div>
-          <div class="filter-row" role="tablist" aria-label="商品分类">
-            <button class="filter ${state.selectedCategory === 'all' ? 'active' : ''}" data-action="filter" data-category="all">全部</button>
-            ${[...categoryMap.values()].map((category) => `<button class="filter ${state.selectedCategory === category.id ? 'active' : ''}" data-action="filter" data-category="${esc(category.id)}">${esc(category.name)}</button>`).join('')}
-          </div>
-          <div class="product-grid">${products.length ? products.map(productCard).join('') : '<div class="empty">该分类暂时没有可展示商品。</div>'}</div>
-        </section>
-        <section class="bottom-band">
-          <div class="info-strip"><strong>付款验证后发卡</strong><span>浏览器跳转只用于体验。真正的订单完成以服务端支付回调和订单状态为准。</span></div>
-          <div class="info-strip coral"><strong>卡密永久留档</strong><span>发放成功后，卡密始终保存在“我的订单”中，支持一键复制和售后查询。${state.publicConfig?.supportUrl ? ' <button class="support-link" data-action="open-support">联系售后</button>' : ''}</span></div>
-        </section>
-      </main>
-      ${renderDrawer()}
-      <section class="order-panel" id="order-panel"></section>
-      <div class="toast" id="toast" role="status"></div>
-    </div>`;
+  return `<section class="shop-view">
+    <div class="shop-banner"><div><span>INSTANT DELIVERY</span><h2>数字卡密，付款后即刻送达</h2><p>USDT · TRON</p></div><div class="banner-mark">XX</div></div>
+    <div class="filter-row" role="tablist" aria-label="商品分类">
+      <button class="filter ${state.selectedCategory === 'all' ? 'active' : ''}" data-action="filter" data-category="all">全部</button>
+      ${[...categoryMap.values()].map((category) => `<button class="filter ${state.selectedCategory === category.id ? 'active' : ''}" data-action="filter" data-category="${esc(category.id)}">${esc(category.name)}</button>`).join('')}
+    </div>
+    <div class="native-section-title"><h2>精选商品</h2><span>${products.length} 件</span></div>
+    <div class="product-grid">${products.length ? products.map(productCard).join('') : `<div class="native-empty compact">${icon.package}<h2>暂无商品</h2></div>`}</div>
+  </section>`;
+}
+
+function ordersView() {
+  if (state.ordersLoading) return '<div class="native-loading"><span></span><p>正在加载订单</p></div>';
+  if (!state.orders?.length) return `<section class="native-empty">${icon.package}<h2>还没有订单</h2><p>选购数字商品后，订单会显示在这里</p><button data-action="switch-tab" data-tab="shop">去逛逛</button></section>`;
+  return `<section class="orders-view"><div class="native-list">${state.orders.map((order) => `<button class="native-order" data-action="view-order" data-order-no="${esc(order.orderNo)}"><div class="native-order-icon">${icon.receipt}</div><div class="native-order-main"><strong>${esc(order.productTitle)}</strong><span>${esc(order.variantName)} · ${new Date(order.createdAt).toLocaleDateString('zh-CN')}</span><small>${esc(order.orderNo)}</small></div><div class="native-order-side"><b>${money(order.totalPriceFen)}</b><span>${esc(statusLabel(order.status))}</span>${icon.chevron}</div></button>`).join('')}</div></section>`;
+}
+
+function profileView() {
+  const initials = (state.user?.firstName ?? 'X').trim().slice(0, 1).toUpperCase();
+  return `<section class="profile-view">
+    <div class="profile-card"><div class="profile-avatar">${esc(initials)}</div><div><h2>${esc(state.user?.firstName ?? 'Telegram 用户')}</h2><p>Telegram ID ${esc(state.user?.telegramId ?? '')}</p></div></div>
+    <div class="native-menu">
+      <button data-action="switch-tab" data-tab="orders"><span>${icon.receipt}<b>我的订单</b></span>${icon.chevron}</button>
+      ${state.publicConfig?.supportUrl ? `<button data-action="open-support"><span>${icon.support}<b>联系售后</b></span>${icon.chevron}</button>` : ''}
+      ${state.user?.isAdmin ? `<a href="/admin"><span>${icon.settings}<b>管理后台</b></span>${icon.chevron}</a>` : ''}
+      <div><span>${icon.shield}<b>当前版本</b></span><small>v${esc(state.publicConfig?.version ?? '1.0.3')}</small></div>
+    </div>
+  </section>`;
+}
+
+function renderCatalog() {
+  const views = { shop: shopView, orders: ordersView, profile: profileView };
+  app.innerHTML = `<div class="app-shell native-shell">${renderHeader()}<main class="mini-content">${views[state.activeTab]()}</main>${renderDrawer()}<section class="order-panel" id="order-panel"></section>${renderTabbar()}<div class="toast" id="toast" role="status"></div></div>`;
 }
 
 function renderDrawer() {
@@ -185,9 +207,9 @@ function renderDrawer() {
         <label class="form-label">购买数量</label>
         <div class="quantity-control"><button data-action="quantity-minus" aria-label="减少数量">−</button><output>${quantity}</output><button data-action="quantity-plus" aria-label="增加数量">+</button></div>
         <label class="form-label">支付方式</label>
-        <button class="payment-choice" type="button" aria-label="USDT Tron 支付"><span><strong>${esc((state.publicConfig?.paymentToken ?? 'USDT').replace('-', ' ').toUpperCase())} · ${esc((state.publicConfig?.paymentChain ?? 'TRON').toUpperCase())}</strong>独角兽支付托管收银台</span><b></b></button>
+        <button class="payment-choice" type="button" aria-label="USDT Tron 支付"><span><strong>${esc(String(state.publicConfig?.paymentToken ?? 'USDT').split('-').at(-1).toUpperCase())} · ${esc((state.publicConfig?.paymentChain ?? 'TRON').toUpperCase())}</strong>独角兽支付托管收银台</span><b></b></button>
         <div class="total-line"><span>订单合计</span><strong>${money(variant.priceFen * quantity)}</strong></div>
-        <button class="primary-button" data-action="submit-checkout">创建支付订单 ${icon.arrow}</button>
+        <button class="primary-button" data-action="submit-checkout">创建支付订单</button>
         ${message ? `<div class="notice error">${esc(message)}</div>` : '<div class="notice">订单将预留对应库存。DujiaoPay 确认到账后，系统会自动发放卡密。</div>'}
       </aside>
     </div>`;
@@ -253,17 +275,39 @@ function closeOrder() {
   const panel = document.querySelector('#order-panel');
   panel?.classList.remove('open');
   history.replaceState({}, '', '/');
+  if (state.activeTab === 'orders') {
+    state.orders = null;
+    void loadOrders(true);
+  }
+}
+
+async function loadOrders(force = false) {
+  if (state.orders && !force) {
+    renderCatalog();
+    return;
+  }
+  state.ordersLoading = true;
+  renderCatalog();
+  try {
+    state.orders = await api('/api/orders');
+  } finally {
+    state.ordersLoading = false;
+    renderCatalog();
+  }
+}
+
+async function switchTab(tab) {
+  if (!['shop', 'orders', 'profile'].includes(tab)) return;
+  clearInterval(state.orderPoll);
+  state.activeTab = tab;
+  history.replaceState({}, '', '/');
+  renderCatalog();
+  window.Telegram?.WebApp?.HapticFeedback?.selectionChanged?.();
+  if (tab === 'orders') await loadOrders();
 }
 
 async function showOrders() {
-  const panel = document.querySelector('#order-panel');
-  panel.classList.add('open');
-  try {
-    const orders = await api('/api/orders');
-    panel.innerHTML = `<article class="order-card"><button class="close-button" data-action="close-order">${icon.close}</button><h2>我的订单</h2><p class="order-no">已购买的卡密可在此永久查看</p><div class="card-list">${orders.length ? orders.map((order) => `<button class="issued-card" data-action="view-order" data-order-no="${esc(order.orderNo)}" style="text-align:left;border:1px solid var(--line)"><span><strong>${esc(order.productTitle)}</strong><code>${esc(order.orderNo)}</code></span><span class="order-status">${esc(statusLabel(order.status))}</span></button>`).join('') : '<div class="notice">暂时没有订单。</div>'}</div></article>`;
-  } catch (error) {
-    panel.innerHTML = `<article class="order-card"><button class="close-button" data-action="close-order">${icon.close}</button><p>${esc(error.message)}</p></article>`;
-  }
+  return switchTab('orders');
 }
 
 function showToast(message) {
@@ -312,6 +356,7 @@ async function submitCheckout() {
     });
     state.checkout = null;
     state.checkoutIdempotencyKey = null;
+    state.orders = null;
     renderCatalog();
     if (order.payment.provider === 'mock') {
       await openOrder(order.orderNo);
@@ -329,6 +374,11 @@ async function onClick(event) {
   const actionElement = event.target.closest('[data-action]');
   if (!actionElement) return;
   const action = actionElement.dataset.action;
+  if (action === 'switch-tab') return switchTab(actionElement.dataset.tab);
+  if (action === 'refresh-orders') {
+    state.orders = null;
+    return loadOrders(true);
+  }
   if (action === 'reload') {
     location.reload();
     return;
@@ -421,8 +471,9 @@ async function initialize() {
       api('/api/catalog'),
     ]);
     for (const product of state.catalog) state.selectedVariants.set(product.id, product.variants[0]?.id);
-    renderCatalog();
     const existingOrder = location.pathname.match(/(?:orders|pay\/mock)\/(XX\d{14}[A-F0-9]{8})/)?.[1];
+    if (existingOrder) state.activeTab = 'orders';
+    renderCatalog();
     if (existingOrder) await openOrder(existingOrder, false);
   } catch (error) {
     app.innerHTML = `<main class="page"><div class="empty"><strong>暂时无法进入商店</strong><p>${esc(error.message)}</p><button class="copy-button" data-action="reload">重新连接</button></div></main>`;
