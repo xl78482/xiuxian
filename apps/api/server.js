@@ -120,11 +120,19 @@ function getBearerToken(request) {
 
 function requireIdentity(request) {
   const token = verifySessionToken(getBearerToken(request), config.sessionSecret);
-  if (!token) throw new DomainError('登录状态已失效，请重新登录。', 'unauthenticated', 401);
+  if (!token) {
+    const identity = telegramIdentityFromHeader(request);
+    if (identity) return { token: { kind: 'user', userId: identity.id }, identity };
+    throw new DomainError('登录状态已失效，请重新登录。', 'unauthenticated', 401);
+  }
   const identity = token.kind === 'admin'
     ? adminAccounts.findById(token.userId)
     : commerce.getUser(token.userId);
-  if (!identity) throw new DomainError('登录状态已失效，请重新登录。', 'unauthenticated', 401);
+  if (!identity) {
+    const refreshedIdentity = telegramIdentityFromHeader(request);
+    if (refreshedIdentity) return { token: { kind: 'user', userId: refreshedIdentity.id }, identity: refreshedIdentity };
+    throw new DomainError('登录状态已失效，请重新登录。', 'unauthenticated', 401);
+  }
   if (token.kind === 'user' && !identity.isActive) throw new DomainError('当前账号已停用，请联系售后。', 'user_disabled', 403);
   return { token, identity };
 }
@@ -138,9 +146,10 @@ function requireUser(request) {
 
 function requireAdmin(request) {
   const token = verifySessionToken(getBearerToken(request), config.sessionSecret);
-  if (!token || token.kind !== 'admin') throw new DomainError('请使用管理员账号密码登录后台。', 'forbidden', 403);
+  if (!token) throw new DomainError('后台会话已失效，请重新登录。', 'admin_unauthenticated', 401);
+  if (token.kind !== 'admin') throw new DomainError('请使用管理员账号密码登录后台。', 'forbidden', 403);
   const account = adminAccounts.findById(token.userId);
-  if (!account) throw new DomainError('登录状态已失效，请重新登录后台。', 'unauthenticated', 401);
+  if (!account) throw new DomainError('后台会话已失效，请重新登录。', 'admin_unauthenticated', 401);
   return account;
 }
 
@@ -186,6 +195,27 @@ function checkRateLimit(request, response, limit = 120, windowMs = 60_000) {
 
 function telegramBotToken() {
   return settings.getTelegramBotToken() ?? config.telegramBotToken;
+}
+
+function telegramBotTokenStatus() {
+  const storedToken = settings.getTelegramBotToken();
+  const metadata = settings.getTelegramBotTokenMetadata();
+  const environmentToken = config.telegramBotToken;
+  return {
+    telegramBotTokenConfigured: Boolean(storedToken || environmentToken),
+    telegramBotTokenStored: Boolean(storedToken),
+    telegramBotTokenSource: storedToken ? 'database' : environmentToken ? 'environment' : 'none',
+    telegramBotTokenUpdatedAt: metadata.updatedAt,
+  };
+}
+
+function telegramIdentityFromHeader(request) {
+  const initData = request.headers['x-telegram-init-data'];
+  if (typeof initData !== 'string' || !initData.trim() || initData.length > 8192) return null;
+  const telegramUser = verifyTelegramInitData(initData, telegramBotToken());
+  const user = commerce.upsertTelegramUser(telegramUser);
+  if (!user.isActive) throw new DomainError('当前账号已停用，请联系售后。', 'user_disabled', 403);
+  return user;
 }
 
 function issueSession(user) {
@@ -260,7 +290,7 @@ async function handleApi(request, response, pathname) {
     const user = requireAdmin(request);
     return sendJson(response, 200, {
       username: user.username,
-      telegramBotTokenConfigured: Boolean(telegramBotToken()),
+      ...telegramBotTokenStatus(),
     });
   }
 
@@ -272,11 +302,12 @@ async function handleApi(request, response, pathname) {
         throw new DomainError('Telegram Bot Token 格式无效。', 'invalid_request', 422);
       }
       const telegramBotToken = body.telegramBotToken.trim();
-      settings.setTelegramBotToken(telegramBotToken);
+      const savedAt = settings.setTelegramBotToken(telegramBotToken);
       config.telegramBotToken = telegramBotToken;
       commerce.audit(user.id, 'settings.telegram_bot_token.updated', 'app_setting', 'telegram_bot_token', { configured: true });
+      return sendJson(response, 200, { ...telegramBotTokenStatus(), savedAt });
     }
-    return sendJson(response, 200, { telegramBotTokenConfigured: Boolean(telegramBotToken()) });
+    return sendJson(response, 200, { ...telegramBotTokenStatus(), savedAt: null });
   }
 
   if (method === 'PATCH' && pathname === '/api/admin/account') {

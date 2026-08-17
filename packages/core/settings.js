@@ -30,14 +30,24 @@ export class SettingsStore {
       ciphertext,
       now,
     );
+    return now;
+  }
+
+  getMetadata(key) {
+    const row = one(this.db, 'SELECT updated_at FROM app_settings WHERE key = ?', key);
+    return { configured: Boolean(row), updatedAt: row?.updated_at ?? null };
   }
 
   getTelegramBotToken() {
     return this.get(TELEGRAM_BOT_TOKEN_KEY);
   }
 
+  getTelegramBotTokenMetadata() {
+    return this.getMetadata(TELEGRAM_BOT_TOKEN_KEY);
+  }
+
   setTelegramBotToken(token) {
-    this.set(TELEGRAM_BOT_TOKEN_KEY, token);
+    return this.set(TELEGRAM_BOT_TOKEN_KEY, token);
   }
 
   isTelegramBotTokenConfigured() {

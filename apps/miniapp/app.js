@@ -115,7 +115,11 @@ async function refreshBuyerSession() {
 async function api(path, options = {}) {
   const { retryAuth = true, ...requestOptions } = options;
   const headers = new Headers(requestOptions.headers ?? {});
+  const telegramInitData = window.Telegram?.WebApp?.initData;
   if (state.token && !path.startsWith('/api/auth/')) headers.set('Authorization', `Bearer ${state.token}`);
+  if (typeof telegramInitData === 'string' && telegramInitData.trim() && !path.startsWith('/api/auth/')) {
+    headers.set('X-Telegram-Init-Data', telegramInitData.trim());
+  }
   if (requestOptions.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   const response = await fetch(path, { ...requestOptions, headers });
   const contentType = response.headers.get('content-type') ?? '';

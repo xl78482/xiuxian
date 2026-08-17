@@ -13,6 +13,7 @@ const state = {
   version: null,
   editingProductId: null,
   message: '',
+  settingsNotice: null,
 };
 
 const icons = {
@@ -53,7 +54,17 @@ async function api(path, options = {}) {
   if (options.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   const response = await fetch(path, { ...options, headers });
   const payload = response.headers.get('content-type')?.includes('application/json') ? await response.json() : null;
-  if (!response.ok) throw new Error(payload?.error?.message ?? '请求失败。');
+  if (response.status === 401) {
+    state.token = '';
+    state.user = null;
+    sessionStorage.removeItem('xiuxian_admin_token');
+  }
+  if (!response.ok) {
+    const error = new Error(payload?.error?.message ?? '请求失败。');
+    error.status = response.status;
+    error.code = payload?.error?.code;
+    throw error;
+  }
   return payload;
 }
 
@@ -205,7 +216,7 @@ function ordersView() {
 function settingsView() {
   const settings = state.settings ?? {};
   return `<div class="settings-grid">
-    <section class="form-panel settings-panel"><h3>Telegram Bot Token</h3><p class="settings-copy">用于买家 Mini App 登录验签。Token 只在服务端加密保存，页面不会回显明文。</p><div class="notice">当前状态：${settings.telegramBotTokenConfigured ? '已配置' : '未配置'}</div><div class="field full"><label>新的 Bot Token</label><input name="telegram-bot-token" type="password" autocomplete="off" placeholder="粘贴 BotFather 提供的 Token" /></div><div class="form-actions"><button class="solid-button" data-action="save-bot-token">保存 Bot Token</button></div></section>
+    <section class="form-panel settings-panel"><h3>Telegram Bot Token</h3><p class="settings-copy">用于买家 Mini App 登录验签。Token 只在服务端加密保存，页面不会回显明文。</p><div class="notice ${settings.telegramBotTokenConfigured ? '' : 'error'}">当前状态：${settings.telegramBotTokenConfigured ? '已配置' : '未配置'}${settings.telegramBotTokenUpdatedAt ? ` · 最近更新 ${new Date(settings.telegramBotTokenUpdatedAt).toLocaleString('zh-CN')}` : ''}</div>${state.settingsNotice ? `<div class="notice ${state.settingsNotice.type === 'error' ? 'error' : ''}">${esc(state.settingsNotice.text)}</div>` : ''}<div class="field full"><label>新的 Bot Token</label><input name="telegram-bot-token" type="password" autocomplete="off" placeholder="粘贴 BotFather 提供的 Token" /></div><div class="form-actions"><button class="solid-button" data-action="save-bot-token">保存 Bot Token</button></div></section>
     <section class="form-panel settings-panel"><h3>管理员账号</h3><p class="settings-copy">修改后台登录账号或密码。新密码至少 12 位。</p><div class="field full"><label>账号</label><input name="admin-username" value="${esc(state.user?.username ?? '')}" autocomplete="username" /></div><div class="field"><label>新密码</label><input name="admin-password" type="password" autocomplete="new-password" placeholder="留空表示不修改" /></div><div class="field"><label>确认新密码</label><input name="admin-password-confirm" type="password" autocomplete="new-password" placeholder="再次输入新密码" /></div><div class="form-actions"><button class="solid-button" data-action="save-admin-account">保存账号设置</button></div></section>
   </div>`;
 }
@@ -246,7 +257,7 @@ async function onClick(event) {
       root.innerHTML = loginScreen();
       return;
     }
-    if (action === 'navigate') { state.view = element.dataset.view; await refresh(); return; }
+    if (action === 'navigate') { state.view = element.dataset.view; if (state.view !== 'settings') state.settingsNotice = null; await refresh(); return; }
     if (action === 'refresh') { await refresh(); toast('数据已刷新。'); return; }
     if (action === 'toggle-panel') { const panel = document.querySelector(`#${element.dataset.panel}`); if (panel) panel.hidden = !panel.hidden; return; }
     if (action === 'edit-product') { state.editingProductId = element.dataset.id; render(); document.querySelector('#product-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
@@ -334,8 +345,18 @@ async function onClick(event) {
     }
     if (action === 'save-bot-token') {
       const input = document.querySelector('[name="telegram-bot-token"]');
-      await api('/api/admin/settings', { method: 'PATCH', body: JSON.stringify({ telegramBotToken: input.value }) });
-      toast('Telegram Bot Token 已加密保存。'); await refresh(); return;
+      const button = element;
+      const token = input?.value.trim() ?? '';
+      if (!token) throw new Error('请先输入 Bot Token。');
+      button.disabled = true;
+      state.settingsNotice = { type: 'info', text: '正在保存 Bot Token…' };
+      render();
+      const result = await api('/api/admin/settings', { method: 'PATCH', body: JSON.stringify({ telegramBotToken: token }) });
+      const savedAt = result.savedAt ? new Date(result.savedAt).toLocaleString('zh-CN') : '刚刚';
+      state.settingsNotice = { type: 'success', text: `Bot Token 已保存并加密写入数据库（${savedAt}）。` };
+      toast('Bot Token 保存成功。');
+      await refresh();
+      return;
     }
     if (action === 'save-admin-account') {
       const username = document.querySelector('[name="admin-username"]').value.trim();
@@ -348,7 +369,18 @@ async function onClick(event) {
       state.user = { ...state.user, ...account };
       toast('管理员账号已更新。'); await refresh(); return;
     }
-  } catch (error) { state.message = error.message; render(); }
+  } catch (error) {
+    if (error?.status === 401 || (error instanceof Error && /后台会话|登录状态已失效/.test(error.message))) {
+      state.token = '';
+      state.user = null;
+      sessionStorage.removeItem('xiuxian_admin_token');
+      root.innerHTML = loginScreen(`后台会话已过期，请重新登录后再保存。`);
+      return;
+    }
+    if (state.view === 'settings') state.settingsNotice = { type: 'error', text: error instanceof Error ? error.message : '保存失败，请稍后重试。' };
+    state.message = error instanceof Error ? error.message : '操作失败，请稍后重试。';
+    render();
+  }
 }
 
 async function handleLoginSubmit(event) {
