@@ -2,7 +2,7 @@
 
 Telegram Mini App 自动发卡平台。当前版本使用零第三方运行时依赖的 Node.js 22 + SQLite，支付层通过适配器隔离，首个适配器为 DujiaoPay，默认开发环境使用 mock 支付。
 
-当前版本：`1.0.1`
+当前版本：`1.0.2`
 
 版本更新内容见 [CHANGELOG.md](./CHANGELOG.md)，发布规则见 [RELEASING.md](./RELEASING.md)，尚未完成的上线与运营能力见 [ROADMAP.md](./ROADMAP.md)。
 

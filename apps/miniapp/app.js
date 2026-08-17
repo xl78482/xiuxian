@@ -53,8 +53,8 @@ function setTelegramTheme() {
   if (!webApp) return;
   webApp.ready();
   webApp.expand();
-  webApp.setHeaderColor?.('#f4f1e9');
-  webApp.setBackgroundColor?.('#f4f1e9');
+  webApp.setHeaderColor?.('#f5f7fb');
+  webApp.setBackgroundColor?.('#f5f7fb');
 }
 
 async function api(path, options = {}) {
@@ -99,7 +99,7 @@ function renderHeader() {
     <header class="topbar">
       <a class="brand" href="/" aria-label="返回 XiuXian 首页">
         <span class="brand-mark">XX</span>
-        <span>XiuXian<small>Digital delivery · v${esc(state.publicConfig?.version ?? '1.0.1')}</small></span>
+        <span>XiuXian<small>Digital delivery · v${esc(state.publicConfig?.version ?? '1.0.2')}</small></span>
       </a>
       <nav class="nav-actions" aria-label="操作">
         ${state.user?.isAdmin ? `<a class="icon-button" href="/admin" title="管理后台" aria-label="管理后台">${icon.settings}</a>` : ''}
