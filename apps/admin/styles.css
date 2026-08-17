@@ -206,7 +206,7 @@ td { color: #33415d; }
 @media (max-width: 820px) { .settings-grid { grid-template-columns: 1fr; } }
 
 
-/* v1.0.6 user management */
+/* v1.0.7 user management */
 .user-section-bar { align-items: center; }
 .user-search { width: min(300px, 100%); min-height: 40px; padding: 0 13px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: #fff; }
 .admin-user { display: flex; align-items: center; gap: 10px; min-width: 180px; }

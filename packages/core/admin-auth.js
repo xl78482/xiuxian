@@ -72,6 +72,10 @@ export class AdminAccountStore {
     return toAccount(one(this.db, 'SELECT * FROM admin_accounts WHERE id = ? AND is_active = 1', id));
   }
 
+  firstActive() {
+    return toAccount(one(this.db, 'SELECT * FROM admin_accounts WHERE is_active = 1 ORDER BY created_at, id LIMIT 1'));
+  }
+
   create(username, password) {
     const normalizedUsername = validateAdminUsername(username);
     const normalizedPassword = validateAdminPassword(password);

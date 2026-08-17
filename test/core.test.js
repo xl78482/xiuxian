@@ -5,7 +5,8 @@ import path from 'node:path';
 import test from 'node:test';
 import { openDatabase } from '../packages/core/database.js';
 import { createCardCrypto } from '../packages/core/crypto.js';
-import { CommerceService, makeMockPaymentProvider } from '../packages/core/commerce.js';
+import { CommerceService } from '../packages/core/commerce.js';
+import { makeTestPaymentProvider, markTestPaymentPaid } from './payment-helpers.js';
 
 function setup() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'xiuxian-test-'));
@@ -13,15 +14,16 @@ function setup() {
   const config = {
     appOrigin: 'http://localhost:3000',
     paymentTtlMinutes: 15,
-    adminTelegramIds: new Set(['100000001']),
   };
   const commerce = new CommerceService({
     db,
     config,
-    paymentProvider: makeMockPaymentProvider(config.appOrigin),
+    paymentProvider: makeTestPaymentProvider(),
     cardCrypto: createCardCrypto('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'),
   });
-  const admin = commerce.upsertTelegramUser({ id: 100000001, first_name: 'Admin', username: 'admin' });
+  const adminUser = commerce.upsertTelegramUser({ id: 100000001, first_name: 'Admin', username: 'admin' });
+  db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(adminUser.id);
+  const admin = commerce.getUser(adminUser.id);
   const now = new Date().toISOString();
   db.prepare(`INSERT INTO categories (id, name, slug, position, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)`).run('cat-test', 'Test', 'test', now, now);
   db.prepare(`INSERT INTO products (id, category_id, title, slug, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', ?, ?)`).run('prd-test', 'cat-test', 'Test product', 'test-product', now, now);
@@ -39,7 +41,7 @@ test('creates an order, preserves idempotency, and issues encrypted cards once',
     ]);
     assert.equal(first.orderNo, second.orderNo);
     assert.equal(first.status, 'pending_payment');
-    assert.equal(commerce.markMockPaymentPaid(first.orderNo, admin.id), true);
+    assert.equal(markTestPaymentPaid(db, commerce, first.orderNo, admin.id), true);
     assert.equal(commerce.processJobs(5), 1);
     const order = commerce.getOrderForUser(first.orderNo, admin.id);
     assert.equal(order.status, 'completed');
@@ -69,7 +71,7 @@ test('stores Telegram profiles and manages buyer status with order metrics', asy
     assert.equal(buyer.lastName, 'Example');
     assert.equal(buyer.isActive, true);
     const order = await commerce.createOrder(buyer, { variantId: 'sku-test', quantity: 1, idempotencyKey: 'buyer-profile-order' });
-    commerce.markMockPaymentPaid(order.orderNo, buyer.id);
+    markTestPaymentPaid(db, commerce, order.orderNo, buyer.id);
     commerce.processJobs(5);
     const summary = commerce.listAdminUsers().find((user) => user.id === buyer.id);
     assert.equal(commerce.listAdminUsers().some((user) => user.id === admin.id), false);
@@ -96,7 +98,7 @@ test('does not expose stored card plaintext in the database', async () => {
       quantity: 1,
       idempotencyKey: 'request-002',
     });
-    commerce.markMockPaymentPaid(order.orderNo, admin.id);
+    markTestPaymentPaid(db, commerce, order.orderNo, admin.id);
     commerce.processJobs(5);
     assert.equal(commerce.getOrderForUser(order.orderNo, admin.id).cards.length, 1);
   } finally {

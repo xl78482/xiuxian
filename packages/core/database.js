@@ -209,6 +209,40 @@ export function openDatabase(databasePath) {
             SELECT id, 'admin:' || id, username, username, 'admin', created_at, updated_at
             FROM admin_accounts;`,
     },
+    {
+      version: 5,
+      sql: `UPDATE users
+            SET telegram_id = 'admin:legacy:' || id
+            WHERE role = 'admin' AND telegram_id NOT LIKE 'admin:%';
+            UPDATE card_credentials
+            SET state = 'available', reserved_for_order_id = NULL, reserved_at = NULL
+            WHERE state = 'reserved' AND reserved_for_order_id IN (
+              SELECT o.id
+              FROM orders o JOIN payment_transactions pt ON pt.order_id = o.id
+              WHERE pt.provider = 'mock'
+                AND pt.status IN ('awaiting_payment', 'pending', 'confirming')
+                AND o.status IN ('pending_payment', 'payment_confirming')
+            );
+            UPDATE orders
+            SET status = 'canceled',
+                failure_reason = '本地测试支付已停用，请重新下单。',
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ')
+            WHERE id IN (
+              SELECT o.id
+              FROM orders o JOIN payment_transactions pt ON pt.order_id = o.id
+              WHERE pt.provider = 'mock'
+                AND pt.status IN ('awaiting_payment', 'pending', 'confirming')
+                AND o.status IN ('pending_payment', 'payment_confirming')
+            );
+            UPDATE payment_transactions
+            SET status = 'canceled',
+                provider_payload = '{"migration":"mock_payment_disabled"}',
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ')
+            WHERE provider = 'mock' AND status IN ('awaiting_payment', 'pending', 'confirming')
+              AND order_id IN (
+                SELECT id FROM orders WHERE status = 'canceled'
+              );`,
+    },
   ];
   const applied = new Set(db.prepare('SELECT version FROM schema_migrations').all().map((row) => Number(row.version)));
   for (const migration of migrations) {

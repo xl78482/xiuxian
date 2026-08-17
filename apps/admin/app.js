@@ -109,7 +109,7 @@ async function loadViewData() {
 
 function sidebar() {
   const links = [['overview', '数据看板'], ['users', '用户管理'], ['products', '商品管理'], ['inventory', '卡密库存'], ['orders', '订单记录'], ['settings', '系统设置']];
-  return `<aside class="sidebar"><a href="/admin" class="admin-brand"><span class="admin-mark">XX</span><span>XiuXian<small>Operations console · v${esc(state.version ?? '1.0.6')}</small></span></a><span class="side-label">Workspace</span><nav class="side-nav">${links.map(([view, label]) => `<button class="${state.view === view ? 'active' : ''}" data-action="navigate" data-view="${view}">${icons[view]}${label}</button>`).join('')}</nav><div class="sidebar-foot"><strong>${esc(state.user?.username ?? state.user?.firstName ?? '管理员')}</strong>独立管理员账号<br/>数字商品交付系统 · v${esc(state.version ?? '1.0.6')}</div></aside>`;
+  return `<aside class="sidebar"><a href="/admin" class="admin-brand"><span class="admin-mark">XX</span><span>XiuXian<small>Operations console · v${esc(state.version ?? '1.0.7')}</small></span></a><span class="side-label">Workspace</span><nav class="side-nav">${links.map(([view, label]) => `<button class="${state.view === view ? 'active' : ''}" data-action="navigate" data-view="${view}">${icons[view]}${label}</button>`).join('')}</nav><div class="sidebar-foot"><strong>${esc(state.user?.username ?? state.user?.firstName ?? '管理员')}</strong>独立管理员账号<br/>数字商品交付系统 · v${esc(state.version ?? '1.0.7')}</div></aside>`;
 }
 
 function topbar() {

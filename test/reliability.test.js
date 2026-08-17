@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { CommerceService, makeMockPaymentProvider } from '../packages/core/commerce.js';
+import { CommerceService } from '../packages/core/commerce.js';
+import { makeTestPaymentProvider, markTestPaymentPaid } from './payment-helpers.js';
 import { createCardCrypto } from '../packages/core/crypto.js';
 import { openDatabase } from '../packages/core/database.js';
 import { DujiaoPayProvider, signRequest } from '../packages/payment/dujiaopay.js';
@@ -18,16 +19,17 @@ function setup(paymentProvider) {
     appOrigin: 'http://localhost:3000',
     isProduction: false,
     paymentTtlMinutes: 15,
-    adminTelegramIds: new Set(['100000001']),
   };
-  const provider = paymentProvider ?? makeMockPaymentProvider(config.appOrigin);
+  const provider = paymentProvider ?? makeTestPaymentProvider();
   const commerce = new CommerceService({
     db,
     config,
     paymentProvider: provider,
     cardCrypto: createCardCrypto(cardKey),
   });
-  const admin = commerce.upsertTelegramUser({ id: 100000001, first_name: 'Admin' });
+  const adminUser = commerce.upsertTelegramUser({ id: 100000001, first_name: 'Admin' });
+  db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(adminUser.id);
+  const admin = commerce.getUser(adminUser.id);
   const now = new Date().toISOString();
   db.prepare(`INSERT INTO categories (id, name, slug, position, created_at, updated_at) VALUES ('cat', 'Test', 'test', 0, ?, ?)`).run(now, now);
   db.prepare(`INSERT INTO products (id, category_id, title, slug, status, created_at, updated_at) VALUES ('product', 'cat', 'Product', 'product', 'active', ?, ?)`).run(now, now);
@@ -124,7 +126,7 @@ test('records refund registry events without changing payment fulfillment', asyn
   const context = setup();
   try {
     const order = await context.commerce.createOrder(context.admin, { variantId: 'variant', quantity: 1, idempotencyKey: 'refund-order' });
-    context.commerce.markMockPaymentPaid(order.orderNo, context.admin.id);
+    markTestPaymentPaid(context.db, context.commerce, order.orderNo, context.admin.id);
     const payment = paymentRow(context.db, order.orderNo);
     const result = context.commerce.processWebhook({
       event_id: 'evt-refund',
@@ -152,7 +154,7 @@ test('replaces a reserved card that expires before payment confirmation', async 
     const payment = paymentRow(context.db, order.orderNo);
     const reserved = context.db.prepare(`SELECT id FROM card_credentials WHERE reserved_for_order_id = ?`).get(payment.local_order_id);
     context.db.prepare(`UPDATE card_credentials SET expires_at = ? WHERE id = ?`).run(new Date(Date.now() - 1000).toISOString(), reserved.id);
-    context.commerce.markMockPaymentPaid(order.orderNo, context.admin.id);
+    markTestPaymentPaid(context.db, context.commerce, order.orderNo, context.admin.id);
     context.commerce.processJobs(5);
     const issued = context.db.prepare(`SELECT card_id FROM card_issuances WHERE order_id = ?`).get(payment.local_order_id);
     assert.notEqual(issued.card_id, reserved.id);
@@ -167,7 +169,7 @@ test('recovers a fulfillment job left locked by a crashed worker', async () => {
   const context = setup();
   try {
     const order = await context.commerce.createOrder(context.admin, { variantId: 'variant', quantity: 1, idempotencyKey: 'stale-job' });
-    context.commerce.markMockPaymentPaid(order.orderNo, context.admin.id);
+    markTestPaymentPaid(context.db, context.commerce, order.orderNo, context.admin.id);
     const claimed = context.commerce.claimFulfillmentJob();
     assert.ok(claimed);
     context.db.prepare(`UPDATE fulfillment_jobs SET locked_at = ? WHERE id = ?`).run(new Date(Date.now() - 20 * 60_000).toISOString(), claimed.id);

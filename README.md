@@ -1,8 +1,8 @@
 # XiuXian
 
-Telegram Mini App 自动发卡平台。当前版本使用零第三方运行时依赖的 Node.js 22 + SQLite，支付层通过适配器隔离，首个适配器为 DujiaoPay，默认开发环境使用 mock 支付。
+Telegram Mini App 自动发卡平台。当前版本使用零第三方运行时依赖的 Node.js 22 + SQLite，运行时支付统一使用 DujiaoPay，买家登录统一使用 Telegram `initData`。
 
-当前版本：`1.0.6`
+当前版本：`1.0.7`
 
 版本更新内容见 [CHANGELOG.md](./CHANGELOG.md)，发布规则见 [RELEASING.md](./RELEASING.md)，尚未完成的上线与运营能力见 [ROADMAP.md](./ROADMAP.md)。
 
@@ -26,13 +26,15 @@ Telegram Mini App 自动发卡平台。当前版本使用零第三方运行时�
 cp .env.example .env
 ```
 
-开发环境必须将 `.env` 设置为 mock 支付，并准备两个随机密钥：
+运行前准备 `.env`，支付和 Telegram 登录都使用真实配置。先生成两个随机密钥：
 
 ```sh
-PAYMENT_PROVIDER=mock
+PAYMENT_PROVIDER=dujiaopay
 SESSION_SECRET=$(node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))")
 CARD_ENCRYPTION_KEY=$(node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))")
 ```
+
+必须同时填写 `TELEGRAM_BOT_TOKEN`、`DUJIAOPAY_KEY_ID`、`DUJIAOPAY_SECRET` 和 `DUJIAOPAY_WEBHOOK_SECRET`。浏览器直接打开买家地址不会创建开发账号，必须从 Telegram Bot 的 Mini App 按钮进入。
 
 也可以直接执行：
 
@@ -40,7 +42,7 @@ CARD_ENCRYPTION_KEY=$(node -e "console.log(require('node:crypto').randomBytes(32
 node scripts/generate-assets.js
 node scripts/seed.js
 npm test
-npm start
+npm run dev
 ```
 
 开发服务：
@@ -139,7 +141,7 @@ npm run backup -- /mnt/secure-backups
 - 卡密明文只在发放给已授权买家时解密，数据库只保存密文和指纹。
 - 订单金额、币种、链和商户订单号由服务端核对，不能信任前端或回调中的展示字段。
 - 支付回调按原始字节验签，重复 Webhook 和重复发卡任务均幂等。
-- 生产环境强制 HTTPS；买家 Mini App 需要 Telegram Bot Token，独立后台使用账号密码并禁用开发登录。
+- 生产环境强制 HTTPS；买家 Mini App 只接受 Telegram `initData` 和服务端验签，独立后台使用账号密码，运行时不提供开发登录。
 - 失败 Webhook 会记录原因并返回非 2xx 触发渠道重试，可在后台订单页查看。
 - Worker 会恢复超时锁，发卡前会禁用过期卡并从同 SKU 自动补卡。
 - 商品删除使用归档，不物理删除历史关联数据。

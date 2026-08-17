@@ -3,7 +3,7 @@ import { AdminAccountStore } from './admin-auth.js';
 import { createCardCrypto } from './crypto.js';
 import { openDatabase } from './database.js';
 import { SettingsStore } from './settings.js';
-import { CommerceService, makeMockPaymentProvider } from './commerce.js';
+import { CommerceService } from './commerce.js';
 import { DujiaoPayProvider } from '../payment/dujiaopay.js';
 
 export function createRuntime(rootDirectory = process.cwd()) {
@@ -22,10 +22,7 @@ export function createRuntime(rootDirectory = process.cwd()) {
   if (adminAccounts.count() === 0) {
     throw new Error('ADMIN_USERNAME and ADMIN_PASSWORD are required to initialize the first admin account.');
   }
-  const paymentProvider =
-    config.paymentProvider === 'dujiaopay'
-      ? new DujiaoPayProvider(config.dujiaopay)
-      : makeMockPaymentProvider(config.appOrigin);
+  const paymentProvider = new DujiaoPayProvider(config.dujiaopay);
   const commerce = new CommerceService({
     db,
     config,

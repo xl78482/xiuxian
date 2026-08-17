@@ -20,15 +20,6 @@ function required(name) {
   return value;
 }
 
-function parseIds(value) {
-  return new Set(
-    (value ?? '')
-      .split(',')
-      .map((item) => item.trim())
-      .filter((item) => /^\d+$/.test(item)),
-  );
-}
-
 export function loadConfig(rootDirectory = process.cwd()) {
   loadEnvFile(path.join(rootDirectory, '.env'));
   const packageMetadata = JSON.parse(fs.readFileSync(path.join(rootDirectory, 'package.json'), 'utf8'));
@@ -37,12 +28,9 @@ export function loadConfig(rootDirectory = process.cwd()) {
     throw new Error('package.json version must use MAJOR.MINOR.PATCH format.');
   }
   const nodeEnv = process.env.NODE_ENV ?? 'development';
-  const paymentProvider = process.env.PAYMENT_PROVIDER ?? 'mock';
-  if (!['mock', 'dujiaopay'].includes(paymentProvider)) {
-    throw new Error('PAYMENT_PROVIDER must be mock or dujiaopay.');
-  }
-  if (nodeEnv === 'production' && paymentProvider === 'mock') {
-    throw new Error('PAYMENT_PROVIDER=mock is forbidden in production.');
+  const paymentProvider = process.env.PAYMENT_PROVIDER ?? 'dujiaopay';
+  if (paymentProvider !== 'dujiaopay') {
+    throw new Error('PAYMENT_PROVIDER must be dujiaopay.');
   }
 
   const sessionSecret = required('SESSION_SECRET');
@@ -66,7 +54,6 @@ export function loadConfig(rootDirectory = process.cwd()) {
     telegramBotToken: process.env.TELEGRAM_BOT_TOKEN ?? '',
     supportUrl: process.env.SUPPORT_URL ?? '',
     trustProxy: /^(1|true|yes)$/i.test(process.env.TRUST_PROXY ?? ''),
-    adminTelegramIds: parseIds(process.env.ADMIN_TELEGRAM_IDS),
     paymentProvider,
     paymentTtlMinutes: Number(process.env.ORDER_PAYMENT_TTL_MINUTES ?? 15),
     dujiaopay: {
@@ -102,7 +89,7 @@ export function loadConfig(rootDirectory = process.cwd()) {
       throw new Error('SUPPORT_URL must be a valid https:// or tg:// URL.');
     }
   }
-  if (paymentProvider === 'dujiaopay') {
+  {
     let dujiaoPayUrl;
     try {
       dujiaoPayUrl = new URL(config.dujiaopay.baseUrl);

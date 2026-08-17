@@ -1,6 +1,6 @@
 const app = document.querySelector('#app');
 const state = {
-  token: sessionStorage.getItem('xiuxian_token') ?? '',
+  token: '',
   user: null,
   catalog: [],
   activeTab: 'shop',
@@ -15,6 +15,15 @@ const state = {
   checkoutIdempotencyKey: null,
   publicConfig: null,
 };
+
+class ApiError extends Error {
+  constructor(message, status, code) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = code;
+  }
+}
 
 const icon = {
   bag: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8h12l1 12H5L6 8Z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>',
@@ -70,19 +79,21 @@ function setTelegramTheme() {
 
 async function requestLoginSession() {
   const telegram = window.Telegram?.WebApp;
-  if (telegram?.initData) {
-    return api('/api/auth/telegram', {
-      method: 'POST',
-      body: JSON.stringify({ initData: telegram.initData }),
-      retryAuth: false,
-    });
+  const initData = typeof telegram?.initData === 'string' ? telegram.initData.trim() : '';
+  if (!initData) {
+    throw new ApiError('无法获取 Telegram 登录信息，请关闭后从机器人菜单重新打开小程序。', 401, 'telegram_init_data_missing');
   }
-  const params = new URLSearchParams(location.search);
-  return api('/api/auth/development', {
+  return api('/api/auth/telegram', {
     method: 'POST',
-    body: JSON.stringify({ telegramId: Number(params.get('devUser') ?? 100000001), username: 'Local Preview' }),
+    body: JSON.stringify({ initData }),
     retryAuth: false,
   });
+}
+
+function clearBuyerSession() {
+  state.token = '';
+  state.user = null;
+  sessionStorage.removeItem('xiuxian_token');
 }
 
 async function refreshBuyerSession() {
@@ -91,8 +102,11 @@ async function refreshBuyerSession() {
     .then((session) => {
       state.token = session.accessToken;
       state.user = session.user;
-      sessionStorage.setItem('xiuxian_token', state.token);
       return session;
+    })
+    .catch((error) => {
+      clearBuyerSession();
+      throw error;
     })
     .finally(() => { state.authRefreshPromise = null; });
   return state.authRefreshPromise;
@@ -101,22 +115,21 @@ async function refreshBuyerSession() {
 async function api(path, options = {}) {
   const { retryAuth = true, ...requestOptions } = options;
   const headers = new Headers(requestOptions.headers ?? {});
-  if (state.token) headers.set('Authorization', `Bearer ${state.token}`);
+  if (state.token && !path.startsWith('/api/auth/')) headers.set('Authorization', `Bearer ${state.token}`);
   if (requestOptions.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   const response = await fetch(path, { ...requestOptions, headers });
   const contentType = response.headers.get('content-type') ?? '';
   const payload = contentType.includes('application/json') ? await response.json() : null;
   if (response.status === 401 && retryAuth && !path.startsWith('/api/auth/')) {
+    clearBuyerSession();
     await refreshBuyerSession();
     return api(path, { ...requestOptions, retryAuth: false });
   }
-  if (!response.ok) throw new Error(payload?.error?.message ?? '请求失败，请稍后重试。');
+  if (response.status === 401) clearBuyerSession();
+  if (!response.ok) {
+    throw new ApiError(payload?.error?.message ?? '请求失败，请稍后重试。', response.status, payload?.error?.code);
+  }
   return payload;
-}
-
-async function login() {
-  setTelegramTheme();
-  await refreshBuyerSession();
 }
 
 function findProduct(productId) {
@@ -213,7 +226,7 @@ function profileView() {
     <div class="native-menu">
       <button data-action="switch-tab" data-tab="orders"><span>${icon.receipt}<b>我的订单</b></span>${icon.chevron}</button>
       ${state.publicConfig?.supportUrl ? `<button data-action="open-support"><span>${icon.support}<b>联系售后</b></span>${icon.chevron}</button>` : ''}
-      <div><span>${icon.shield}<b>当前版本</b></span><small>v${esc(state.publicConfig?.version ?? '1.0.6')}</small></div>
+      <div><span>${icon.shield}<b>当前版本</b></span><small>v${esc(state.publicConfig?.version ?? '1.0.7')}</small></div>
     </div>
   </section>`;
 }
@@ -307,9 +320,7 @@ function embeddedPaymentMarkup(order) {
 }
 
 function orderPanelMarkup(order) {
-  const isMock = order.payment.provider === 'mock';
-  const canPayMock = isMock && order.status === 'pending_payment';
-  const canRetryPaymentSession = !isMock && order.status === 'pending_payment' && !order.payment.checkoutUrl && !order.payment.paymentInstructions;
+  const canRetryPaymentSession = order.status === 'pending_payment' && !order.payment.checkoutUrl && !order.payment.paymentInstructions;
   const canOpenSupport = Boolean(state.publicConfig?.supportUrl) && ['fulfillment_failed', 'payment_expired', 'canceled'].includes(order.status);
   const cards = order.cards?.length
     ? `<div class="card-list">${order.cards.map((card) => `<div class="issued-card"><div><code>${esc(card.code)}</code>${card.password ? `<code>密码：${esc(card.password)}</code>` : ''}${card.note ? `<small>${esc(card.note)}</small>` : ''}</div><button class="copy-button" data-action="copy-card" data-copy="${encodeURIComponent(`${card.code}${card.password ? `\n密码：${card.password}` : ''}`)}">复制</button></div>`).join('')}</div>`
@@ -324,7 +335,6 @@ function orderPanelMarkup(order) {
       ${embeddedPaymentMarkup(order)}
       ${order.status === 'pending_payment' && !order.payment.paymentInstructions ? `<div class="notice">${order.payment.payableAmount ? `应付 ${esc(paymentAmount(order))} · ` : ''}订单会在 ${order.payment.expiresAt ? new Date(order.payment.expiresAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '有效期内'} 完成付款。</div>` : ''}
       ${canRetryPaymentSession ? '<button class="primary-button" data-action="retry-payment-session">重新创建支付会话</button>' : ''}
-      ${canPayMock ? '<button class="primary-button" data-action="complete-mock-payment">模拟付款成功并自动发卡</button>' : ''}
       ${order.status === 'fulfillment_failed' ? `<div class="notice error">${esc(order.failureReason ?? '发卡任务异常，请联系售后。')}</div>` : ''}
       ${canOpenSupport ? '<button class="copy-button" style="margin-top:12px" data-action="open-support">联系售后</button>' : ''}
       <h3 style="margin:26px 0 10px;font-size:15px">已发放卡密</h3>
@@ -573,14 +583,6 @@ async function onClick(event) {
     const orderNo = location.pathname.match(/XX\d{14}[A-F0-9]{8}/)?.[0];
     if (orderNo) return refreshOrder(orderNo);
   }
-  if (action === 'complete-mock-payment') {
-    const orderNo = location.pathname.match(/XX\d{14}[A-F0-9]{8}/)?.[0];
-    if (!orderNo) return;
-    actionElement.setAttribute('disabled', '');
-    await api(`/api/dev/orders/${orderNo}/pay`, { method: 'POST' });
-    showToast('模拟付款已确认，卡密已自动发放。');
-    return refreshOrder(orderNo);
-  }
   if (action === 'retry-payment-session') {
     const orderNo = location.pathname.match(/XX\d{14}[A-F0-9]{8}/)?.[0];
     if (!orderNo) return;
@@ -614,21 +616,15 @@ function onChange(event) {
 async function initialize() {
   app.innerHTML = '<main class="page"><div class="empty">正在连接 XiuXian…</div></main>';
   try {
-    const telegram = window.Telegram?.WebApp;
-    if (telegram?.initData) {
-      await login();
-    } else {
-      if (state.token) {
-        try { state.user = await api('/api/me'); } catch { state.token = ''; sessionStorage.removeItem('xiuxian_token'); }
-      }
-      if (!state.user) await login();
-    }
+    clearBuyerSession();
+    setTelegramTheme();
+    await refreshBuyerSession();
     [state.publicConfig, state.catalog] = await Promise.all([
       api('/api/public-config'),
       api('/api/catalog'),
     ]);
     for (const product of state.catalog) state.selectedVariants.set(product.id, product.variants[0]?.id);
-    const existingOrder = location.pathname.match(/(?:orders|pay\/mock)\/(XX\d{14}[A-F0-9]{8})/)?.[1];
+    const existingOrder = location.pathname.match(/orders\/(XX\d{14}[A-F0-9]{8})/)?.[1];
     if (existingOrder) state.activeTab = 'orders';
     renderCatalog();
     if (existingOrder) await openOrder(existingOrder, false);

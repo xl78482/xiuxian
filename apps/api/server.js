@@ -8,13 +8,10 @@ import { createRuntime } from '../../packages/core/runtime.js';
 import { AuthError, createSessionToken, verifySessionToken, verifyTelegramInitData } from '../../packages/core/crypto.js';
 import { DomainError } from '../../packages/core/commerce.js';
 import { PaymentProviderError } from '../../packages/payment/index.js';
-import { seedDemoData } from '../../packages/core/demo.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const runtime = createRuntime(root);
 const { config, commerce, paymentProvider, settings, adminAccounts } = runtime;
-
-if (!config.isProduction) seedDemoData(runtime);
 
 const requestCounts = new Map();
 let lastRateLimitCleanup = 0;
@@ -187,16 +184,6 @@ function checkRateLimit(request, response, limit = 120, windowMs = 60_000) {
   return true;
 }
 
-function createDevelopmentUser(body) {
-  if (config.isProduction) throw new DomainError('开发登录在生产环境不可用。', 'not_found', 404);
-  const telegramId = Number(body.telegramId ?? 100000001);
-  if (!Number.isSafeInteger(telegramId) || telegramId <= 0) {
-    throw new DomainError('Telegram ID 无效。', 'invalid_request', 422);
-  }
-  const username = typeof body.username === 'string' ? body.username.trim().slice(0, 64) : 'local_user';
-  return commerce.upsertTelegramUser({ id: telegramId, first_name: username || `Developer ${telegramId}`, username });
-}
-
 function telegramBotToken() {
   return settings.getTelegramBotToken() ?? config.telegramBotToken;
 }
@@ -257,10 +244,6 @@ async function handleApi(request, response, pathname) {
     const telegramUser = verifyTelegramInitData(body.initData, telegramBotToken());
     const user = commerce.upsertTelegramUser(telegramUser);
     return sendJson(response, 200, issueBuyerSession(user));
-  }
-
-  if (method === 'POST' && pathname === '/api/auth/development') {
-    return sendJson(response, 200, issueBuyerSession(createDevelopmentUser(assertObject(await readJson(request)))));
   }
 
   if (method === 'POST' && pathname === '/api/auth/admin/password') {
@@ -359,15 +342,6 @@ async function handleApi(request, response, pathname) {
     const user = requireUser(request);
     const order = await commerce.retryPaymentSession(retryPaymentMatch[1], user.id);
     return sendJson(response, 200, order);
-  }
-
-  const mockPayMatch = pathname.match(/^\/api\/dev\/orders\/(XX\d{14}[A-F0-9]{8})\/pay$/);
-  if (method === 'POST' && mockPayMatch) {
-    if (config.isProduction) throw new DomainError('未找到资源。', 'not_found', 404);
-    const user = requireUser(request);
-    commerce.markMockPaymentPaid(mockPayMatch[1], user.id);
-    commerce.processJobs(5);
-    return sendJson(response, 200, commerce.getOrderForUser(mockPayMatch[1], user.id));
   }
 
   if (method === 'POST' && pathname === '/api/webhooks/dujiaopay') {
@@ -471,8 +445,7 @@ function serveApplication(request, response, pathname) {
   if (
     pathname === '/' ||
     pathname === '/index.html' ||
-    pathname.startsWith('/orders/') ||
-    pathname.startsWith('/pay/mock/')
+    pathname.startsWith('/orders/')
   ) {
     return serveFile(response, buyerDirectory, 'index.html');
   }

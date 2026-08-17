@@ -177,8 +177,8 @@ export class CommerceService {
       } catch { /* Ignore malformed Telegram profile photos. */ }
     }
     const now = nowIso();
-    const role = this.config.adminTelegramIds.has(telegramId) ? 'admin' : 'customer';
     const current = one(this.db, 'SELECT * FROM users WHERE telegram_id = ?', telegramId);
+    const role = 'customer';
     if (current) {
       run(
         this.db,
@@ -894,28 +894,6 @@ export class CommerceService {
     }
   }
 
-  markMockPaymentPaid(orderNo, userId) {
-    return transaction(this.db, () => {
-      const payment = this.findOrderByNo(orderNo, userId);
-      if (!payment) throw new DomainError('订单不存在。', 'order_not_found', 404);
-      if (payment.provider !== 'mock') throw new DomainError('当前订单不使用本地测试支付。', 'invalid_provider', 409);
-      this.applyPaymentState(payment, {
-        providerStatus: 'paid',
-        providerOrderId: payment.provider_order_id,
-        merchantOrderId: payment.merchant_order_id,
-        chain: payment.chain,
-        tokenId: payment.token_id,
-        payableAmount: payment.payable_amount,
-        fiatCurrency: payment.fiat_currency,
-        fiatAmount: payment.fiat_amount,
-        paidAt: nowIso(),
-        transactionId: randomId('mock_tx_'),
-        payload: { development_only: true },
-      });
-      return true;
-    });
-  }
-
   recoverStaleFulfillmentJobs(lockMinutes = 10) {
     return transaction(this.db, () => {
       const cutoff = new Date(Date.now() - lockMinutes * 60_000).toISOString();
@@ -1145,23 +1123,6 @@ export class CommerceService {
     );
     let processed = 0;
     for (const order of due) {
-      if (order.provider === 'mock') {
-        transaction(this.db, () => this.applyPaymentState(order, {
-          providerStatus: 'expired',
-          providerOrderId: order.provider_order_id,
-          merchantOrderId: order.merchant_order_id,
-          chain: order.chain,
-          tokenId: order.token_id,
-          payableAmount: order.payable_amount,
-          fiatCurrency: order.fiat_currency,
-          fiatAmount: order.fiat_amount,
-          paidAt: null,
-          transactionId: null,
-          payload: { development_only: true, reason: 'expired' },
-        }));
-        processed += 1;
-        continue;
-      }
       try {
         if (!order.provider_order_id) {
           await this.ensurePaymentSession(order, order.user_id);
@@ -1581,37 +1542,4 @@ export class CommerceService {
   findOrderByProviderId(providerOrderId) {
     return one(this.db, `${orderWithPayment} WHERE pt.provider_order_id = ?`, providerOrderId);
   }
-}
-
-export function makeMockPaymentProvider(appOrigin) {
-  return {
-    name: 'mock',
-    async createPayment(input) {
-      const providerOrderId = randomId('mock_');
-      return {
-        provider: 'mock',
-        providerOrderId,
-        status: 'pending',
-        chain: 'tron',
-        tokenId: 'tron-usdt',
-        payableAmount: (input.amountFen / 100).toFixed(2),
-        payAddress: 'DEVELOPMENT_ONLY',
-        checkoutUrl: new URL(`/pay/mock/${encodeURIComponent(input.merchantOrderId)}`, appOrigin).toString(),
-        paymentInstructions: {
-          mode: 'qr',
-          method: 'crypto',
-          label: 'USDT',
-          amountUnit: 'USDT',
-          network: 'TRON（开发环境）',
-          qrContent: `XiuXian development payment ${input.merchantOrderId}`,
-          address: 'DEVELOPMENT_ONLY',
-        },
-        expiresAt: addMinutes(15),
-        raw: { development_only: true, provider_order_id: providerOrderId },
-      };
-    },
-    async getOrder(providerOrderId) {
-      return { providerOrderId, merchantOrderId: null, status: 'pending', raw: { development_only: true } };
-    },
-  };
 }
