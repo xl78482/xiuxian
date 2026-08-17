@@ -4,3 +4,4 @@ data/*.sqlite-shm
 data/*.sqlite-wal
 .DS_Store
 *.log
+backups/*.sqlite

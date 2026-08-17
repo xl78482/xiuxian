@@ -59,6 +59,7 @@ export function loadConfig(rootDirectory = process.cwd()) {
     cardEncryptionKey,
     telegramBotToken: process.env.TELEGRAM_BOT_TOKEN ?? '',
     supportUrl: process.env.SUPPORT_URL ?? '',
+    trustProxy: /^(1|true|yes)$/i.test(process.env.TRUST_PROXY ?? ''),
     adminTelegramIds: parseIds(process.env.ADMIN_TELEGRAM_IDS),
     paymentProvider,
     paymentTtlMinutes: Number(process.env.ORDER_PAYMENT_TTL_MINUTES ?? 15),
@@ -96,6 +97,15 @@ export function loadConfig(rootDirectory = process.cwd()) {
     }
   }
   if (paymentProvider === 'dujiaopay') {
+    let dujiaoPayUrl;
+    try {
+      dujiaoPayUrl = new URL(config.dujiaopay.baseUrl);
+    } catch {
+      throw new Error('DUJIAOPAY_BASE_URL must be an absolute URL.');
+    }
+    if (config.isProduction && dujiaoPayUrl.origin !== 'https://www.dujiaopay.com') {
+      throw new Error('DUJIAOPAY_BASE_URL must be exactly https://www.dujiaopay.com in production.');
+    }
     const requiredDujiaoPayFields = [
       ['DUJIAOPAY_KEY_ID', config.dujiaopay.keyId],
       ['DUJIAOPAY_SECRET', config.dujiaopay.secret],

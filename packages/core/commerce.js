@@ -87,6 +87,13 @@ function toOrderSummary(row) {
   };
 }
 
+function assertIdempotentOrderMatches(order, variantId, quantity) {
+  if (order.variant_id !== variantId || Number(order.quantity) !== quantity) {
+    throw new DomainError('相同 Idempotency-Key 不能用于不同的商品或数量。', 'idempotency_conflict', 409);
+  }
+  return order;
+}
+
 function assertText(value, name, minimum = 1, maximum = 1000) {
   if (typeof value !== 'string' || value.trim().length < minimum || value.trim().length > maximum) {
     throw new DomainError(`${name} 无效。`, 'invalid_request', 422);
@@ -98,6 +105,15 @@ function assertSlug(value) {
   const slug = assertText(value, 'Slug', 1, 120);
   if (!/^[a-z0-9-]+$/.test(slug)) throw new DomainError('Slug 只能包含小写字母、数字和连字符。', 'invalid_request', 422);
   return slug;
+}
+
+function assertImagePath(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const imagePath = assertText(String(value), '图片路径', 1, 300);
+  if (!/^\/assets\/[A-Za-z0-9._/-]+$/.test(imagePath) || imagePath.includes('..')) {
+    throw new DomainError('图片必须使用 /assets/ 下的本地路径。', 'invalid_request', 422);
+  }
+  return imagePath;
 }
 
 function assertInteger(value, name, minimum, maximum) {
@@ -218,13 +234,13 @@ export class CommerceService {
     const requestKey = assertText(input.idempotencyKey, '请求标识', 8, 128);
 
     const existing = this.findOrderByRequest(user.id, requestKey);
-    if (existing) return this.ensurePaymentSession(existing, user.id);
+    if (existing) return this.ensurePaymentSession(assertIdempotentOrderMatches(existing, variantId, quantity), user.id);
 
     let localOrder;
     try {
       localOrder = transaction(this.db, () => {
         const concurrent = this.findOrderByRequest(user.id, requestKey);
-        if (concurrent) return concurrent;
+        if (concurrent) return assertIdempotentOrderMatches(concurrent, variantId, quantity);
         const variant = one(
           this.db,
           `SELECT p.id AS product_id, p.title AS product_title, p.status AS product_status,
@@ -310,7 +326,7 @@ export class CommerceService {
     } catch (error) {
       if (isSqliteUniqueError(error)) {
         const duplicate = this.findOrderByRequest(user.id, requestKey);
-        if (duplicate) return this.ensurePaymentSession(duplicate, user.id);
+        if (duplicate) return this.ensurePaymentSession(assertIdempotentOrderMatches(duplicate, variantId, quantity), user.id);
       }
       throw error;
     }
@@ -333,7 +349,20 @@ export class CommerceService {
       });
     } catch (error) {
       if (error instanceof DomainError) throw error;
-      // Do not release cards: an upstream timeout can mean the idempotent order exists remotely.
+      const now = nowIso();
+      run(
+        this.db,
+        `UPDATE payment_transactions
+         SET provider_payload = ?, updated_at = ?
+         WHERE order_id = ? AND status != 'paid'`,
+        JSON.stringify({
+          sessionError: typeof error?.code === 'string' ? error.code : 'payment_session_error',
+          attemptedAt: now,
+        }),
+        now,
+        order.id,
+      );
+      // Keep the reservation: an upstream timeout can mean the idempotent order exists remotely.
       throw new DomainError(
         '支付渠道暂时不可用，订单与库存已保留，请从订单列表再次打开支付。',
         'payment_session_pending',
@@ -341,28 +370,74 @@ export class CommerceService {
       );
     }
 
+    if (!session || session.provider !== this.paymentProvider.name || typeof session.providerOrderId !== 'string' || !session.providerOrderId) {
+      throw new DomainError('支付渠道返回了无效订单。', 'invalid_payment_session', 502);
+    }
+    const providerStatuses = ['awaiting_payment', 'pending', 'confirming', 'paid', 'expired', 'canceled'];
+    if (!providerStatuses.includes(session.status)) {
+      throw new DomainError('支付渠道返回了无效状态。', 'invalid_payment_session', 502);
+    }
+    if (session.status === 'paid' && (!session.fiatCurrency || !session.fiatAmount)) {
+      try {
+        const verified = await this.paymentProvider.getOrder(session.providerOrderId);
+        session = {
+          ...session,
+          ...verified,
+          provider: this.paymentProvider.name,
+          checkoutUrl: session.checkoutUrl ?? null,
+          expiresAt: session.expiresAt ?? null,
+          raw: verified.raw ?? session.raw ?? {},
+        };
+      } catch {
+        throw new DomainError('支付订单已完成，但暂时无法核验金额，已停止自动发卡。', 'payment_confirmation_incomplete', 503);
+      }
+    }
+    if (['awaiting_payment', 'pending'].includes(session.status) && !session.checkoutUrl) {
+      throw new DomainError('支付渠道返回了无效收银台地址。', 'invalid_payment_session', 502);
+    }
+    if (session.checkoutUrl) {
+      let checkoutUrl;
+      try {
+        checkoutUrl = new URL(session.checkoutUrl);
+      } catch {
+        throw new DomainError('支付渠道返回了无效收银台地址。', 'invalid_payment_session', 502);
+      }
+      if (!['http:', 'https:'].includes(checkoutUrl.protocol) || (this.config.isProduction && checkoutUrl.protocol !== 'https:')) {
+        throw new DomainError('支付渠道返回了不安全的收银台地址。', 'invalid_payment_session', 502);
+      }
+    }
+    if (session.payableAmount && !canonicalDecimal(session.payableAmount)) {
+      throw new DomainError('支付渠道返回了无效金额。', 'invalid_payment_session', 502);
+    }
+    const parsedExpiry = session.expiresAt ? new Date(session.expiresAt) : null;
+    if (parsedExpiry && Number.isNaN(parsedExpiry.getTime())) {
+      throw new DomainError('支付渠道返回了无效过期时间。', 'invalid_payment_session', 502);
+    }
+
     transaction(this.db, () => {
       const current = this.findOrderByNo(order.order_no, userId);
       if (!current || current.checkout_url || current.payment_status === 'paid') return;
       const now = nowIso();
       const expiry = session.expiresAt ?? current.payment_deadline;
+      const sessionIsTerminal = !['awaiting_payment', 'pending'].includes(session.status);
       run(
         this.db,
         `UPDATE payment_transactions
          SET provider_order_id = COALESCE(provider_order_id, ?),
-             status = CASE WHEN status = 'paid' THEN 'paid' ELSE ? END,
+             status = CASE WHEN status = 'paid' OR ? = 1 THEN status ELSE ? END,
              payable_amount = COALESCE(?, payable_amount),
              chain = COALESCE(?, chain), token_id = COALESCE(?, token_id),
              pay_address = COALESCE(?, pay_address), checkout_url = COALESCE(checkout_url, ?),
              provider_expires_at = COALESCE(?, provider_expires_at), provider_payload = ?, updated_at = ?
          WHERE order_id = ?`,
         session.providerOrderId,
+        sessionIsTerminal ? 1 : 0,
         session.status,
-        session.payableAmount,
-        session.chain,
-        session.tokenId,
-        session.payAddress,
-        session.checkoutUrl,
+        session.payableAmount ?? null,
+        session.chain ?? null,
+        session.tokenId ?? null,
+        session.payAddress ?? null,
+        session.checkoutUrl ?? null,
         expiry,
         JSON.stringify(session.raw ?? {}),
         now,
@@ -376,6 +451,22 @@ export class CommerceService {
         now,
         current.id,
       );
+      if (sessionIsTerminal) {
+        const payment = this.findOrderByNo(order.order_no, userId);
+        this.applyPaymentState(payment, {
+          providerStatus: session.status,
+          providerOrderId: session.providerOrderId,
+          merchantOrderId: session.merchantOrderId ?? order.merchant_order_id,
+          chain: session.chain ?? null,
+          tokenId: session.tokenId ?? null,
+          payableAmount: session.payableAmount ?? null,
+          fiatCurrency: session.fiatCurrency ?? null,
+          fiatAmount: session.fiatAmount ?? null,
+          paidAt: session.paidAt ?? null,
+          transactionId: session.transactionId ?? null,
+          payload: session.raw ?? {},
+        });
+      }
     });
     const refreshed = this.findOrderByNo(order.order_no, userId);
     return toOrderSummary(refreshed);
@@ -423,6 +514,8 @@ export class CommerceService {
 
   processWebhook(event) {
     return transaction(this.db, () => {
+      const receivedAt = nowIso();
+      const eventPayload = JSON.stringify(event);
       const inserted = run(
         this.db,
         `INSERT OR IGNORE INTO payment_webhook_events
@@ -432,39 +525,119 @@ export class CommerceService {
         this.paymentProvider.name,
         event.event_id,
         event.event_type,
-        JSON.stringify(event),
-        nowIso(),
+        eventPayload,
+        receivedAt,
       );
-      if (!inserted.changes) return { duplicate: true };
-      this.applyWebhookEvent(event);
-      run(
-        this.db,
-        'UPDATE payment_webhook_events SET processed_at = ? WHERE provider = ? AND provider_event_id = ?',
-        nowIso(),
-        this.paymentProvider.name,
-        event.event_id,
-      );
-      return { duplicate: false };
+      const duplicate = !inserted.changes;
+      if (duplicate) {
+        const previous = one(
+          this.db,
+          'SELECT payload, processed_at, processing_error FROM payment_webhook_events WHERE provider = ? AND provider_event_id = ?',
+          this.paymentProvider.name,
+          event.event_id,
+        );
+        if (previous?.payload !== eventPayload) {
+          run(
+            this.db,
+            `UPDATE payment_webhook_events
+             SET processing_error = 'webhook_payload_conflict: duplicate event ID received with different payload'
+             WHERE provider = ? AND provider_event_id = ?`,
+            this.paymentProvider.name,
+            event.event_id,
+          );
+          return { duplicate: true, processed: false, error: 'webhook_payload_conflict' };
+        }
+        if (previous?.processed_at && !previous.processing_error) {
+          return { duplicate: true, processed: true, error: null };
+        }
+      }
+
+      this.db.exec('SAVEPOINT webhook_business');
+      try {
+        this.applyWebhookEvent(event);
+        this.db.exec('RELEASE SAVEPOINT webhook_business');
+        run(
+          this.db,
+          `UPDATE payment_webhook_events
+           SET processed_at = ?, processing_error = NULL
+           WHERE provider = ? AND provider_event_id = ?`,
+          nowIso(),
+          this.paymentProvider.name,
+          event.event_id,
+        );
+        return { duplicate, processed: true, error: null };
+      } catch (error) {
+        this.db.exec('ROLLBACK TO SAVEPOINT webhook_business');
+        this.db.exec('RELEASE SAVEPOINT webhook_business');
+        const code = error instanceof DomainError ? error.code : 'webhook_processing_failed';
+        const message = `${code}: ${error instanceof Error ? error.message : 'Unknown webhook processing error'}`.slice(0, 900);
+        run(
+          this.db,
+          `UPDATE payment_webhook_events
+           SET processed_at = NULL, processing_error = ?
+           WHERE provider = ? AND provider_event_id = ?`,
+          message,
+          this.paymentProvider.name,
+          event.event_id,
+        );
+        return { duplicate, processed: false, error: code };
+      }
     });
   }
 
+  listWebhookFailures(limit = 100) {
+    const safeLimit = Math.max(1, Math.min(500, Number(limit) || 100));
+    return many(
+      this.db,
+      `SELECT provider_event_id, event_type, processing_error, received_at, processed_at
+       FROM payment_webhook_events
+       WHERE processing_error IS NOT NULL
+       ORDER BY received_at DESC LIMIT ?`,
+      safeLimit,
+    );
+  }
+
   applyWebhookEvent(event) {
-    // These platform events are operational records, not a merchant order lifecycle.
-    if (['webhook.test', 'unmatched_claim.claimed', 'refund.recorded'].includes(event.event_type)) return;
+    if (['webhook.test', 'unmatched_claim.claimed'].includes(event.event_type)) return;
     const data = event.data ?? {};
     const merchantOrderId = data.merchant_order_id;
     const providerOrderId = data.order_id;
+
+    if (event.event_type === 'refund.recorded') {
+      const payment = typeof merchantOrderId === 'string' ? this.findOrderByMerchantId(merchantOrderId) : null;
+      this.audit(null, 'refund.recorded', payment ? 'order' : 'payment_refund', payment?.id ?? event.event_id, {
+        eventId: event.event_id,
+        providerOrderId: typeof providerOrderId === 'string' ? providerOrderId : null,
+        merchantOrderId: typeof merchantOrderId === 'string' ? merchantOrderId : null,
+        refundStatus: typeof data.status === 'string' ? data.status : null,
+      });
+      return;
+    }
+
     if (typeof merchantOrderId !== 'string' || typeof providerOrderId !== 'string') {
       throw new DomainError('支付回调缺少订单标识。', 'invalid_webhook', 400);
     }
     const payment = this.findOrderByMerchantId(merchantOrderId);
     if (!payment) throw new DomainError('支付回调对应的订单不存在。', 'unknown_payment_order', 404);
-    const status =
-      event.event_type === 'order.method_selected'
-        ? 'pending'
-        : typeof data.status === 'string'
-          ? data.status
-          : event.event_type.replace('order.', '');
+    if (payment.provider_order_id && payment.provider_order_id !== providerOrderId) {
+      throw new DomainError('支付渠道订单号不匹配。', 'payment_order_mismatch', 409);
+    }
+
+    const payloadStatus = data.status === 'created' ? 'awaiting_payment' : data.status;
+    const statusByEventType = {
+      'order.method_selected': 'pending',
+      'order.confirming': 'confirming',
+      'order.paid': 'paid',
+      'order.expired': 'expired',
+      'order.canceled': 'canceled',
+    };
+    const status = event.event_type === 'order.created' ? payloadStatus : statusByEventType[event.event_type];
+    if (!status || (event.event_type === 'order.created' && !['awaiting_payment', 'pending'].includes(status))) {
+      throw new DomainError('支付回调事件状态无效。', 'invalid_webhook', 400);
+    }
+    if (event.event_type !== 'order.created' && typeof payloadStatus === 'string' && payloadStatus !== status) {
+      throw new DomainError('支付回调状态与事件类型不匹配。', 'payment_status_mismatch', 409);
+    }
     this.applyPaymentState(payment, {
       providerStatus: status,
       providerOrderId,
@@ -474,8 +647,8 @@ export class CommerceService {
       payableAmount: typeof data.payable_amount === 'string' ? data.payable_amount : null,
       fiatCurrency: typeof data.fiat_currency === 'string' ? data.fiat_currency : null,
       fiatAmount: typeof data.fiat_amount === 'string' ? data.fiat_amount : null,
-      paidAt: event.event_type === 'order.paid' ? event.created_at : null,
-      transactionId: typeof data.tx_id === 'string' ? data.tx_id : null,
+      paidAt: event.event_type === 'order.paid' ? (data.paid_at ?? event.created_at) : null,
+      transactionId: typeof data.tx_hash === 'string' ? data.tx_hash : typeof data.tx_id === 'string' ? data.tx_id : null,
       payload: event,
     });
   }
@@ -510,13 +683,14 @@ export class CommerceService {
     if (payment.provider_order_id && incoming.providerOrderId && payment.provider_order_id !== incoming.providerOrderId) {
       throw new DomainError('支付渠道订单号不匹配。', 'payment_order_mismatch', 409);
     }
+    if (payment.status === 'refunded' || payment.payment_status === 'refunded') return;
     const now = nowIso();
 
     if (status === 'paid') {
       this.assertPaidPaymentMatches(payment, incoming);
-      if (['payment_expired', 'canceled'].includes(payment.status)) {
-        throw new DomainError('已关闭订单收到迟到支付，需要人工处理。', 'late_payment', 409);
-      }
+      const alreadyCompleted = payment.status === 'completed';
+      const reservedCards = alreadyCompleted ? [] : this.refreshReservedCards(payment);
+      const inventoryReady = alreadyCompleted || reservedCards.length === Number(payment.quantity);
       run(
         this.db,
         `UPDATE payment_transactions
@@ -537,11 +711,40 @@ export class CommerceService {
       );
       run(
         this.db,
-        `UPDATE orders SET status = CASE WHEN status = 'completed' THEN 'completed' ELSE 'paid' END,
-         updated_at = ? WHERE id = ?`,
+        `UPDATE orders
+         SET status = CASE
+               WHEN status = 'completed' THEN 'completed'
+               WHEN ? = 1 THEN 'paid'
+               ELSE 'fulfillment_failed'
+             END,
+             fulfillment_status = CASE
+               WHEN status = 'completed' THEN 'fulfilled'
+               WHEN ? = 1 THEN 'pending'
+               ELSE 'failed'
+             END,
+             failure_reason = CASE
+               WHEN ? = 1 THEN NULL
+               ELSE '付款已确认，但当前可发卡密库存不足，请补充库存后重试发卡。'
+             END,
+             updated_at = ?
+         WHERE id = ?`,
+        inventoryReady ? 1 : 0,
+        inventoryReady ? 1 : 0,
+        inventoryReady ? 1 : 0,
         now,
         payment.id,
       );
+      if (!inventoryReady) {
+        run(
+          this.db,
+          `UPDATE fulfillment_jobs
+           SET status = 'failed', locked_at = NULL, last_error = 'paid_inventory_shortage', updated_at = ?
+           WHERE order_id = ? AND status != 'completed'`,
+          now,
+          payment.id,
+        );
+        return;
+      }
       run(
         this.db,
         `INSERT INTO fulfillment_jobs (id, order_id, status, attempts, run_after, created_at, updated_at)
@@ -549,7 +752,7 @@ export class CommerceService {
          ON CONFLICT(order_id) DO UPDATE SET
            status = CASE WHEN fulfillment_jobs.status = 'completed' THEN 'completed' ELSE 'pending' END,
            run_after = CASE WHEN fulfillment_jobs.status = 'completed' THEN fulfillment_jobs.run_after ELSE excluded.run_after END,
-           locked_at = NULL, updated_at = excluded.updated_at`,
+           locked_at = NULL, last_error = NULL, updated_at = excluded.updated_at`,
         randomId('job_'),
         payment.id,
         now,
@@ -621,7 +824,10 @@ export class CommerceService {
   }
 
   assertPaidPaymentMatches(payment, incoming) {
-    if (incoming.fiatCurrency && incoming.fiatCurrency !== payment.fiat_currency) {
+    if (!incoming.providerOrderId || !incoming.fiatCurrency || !incoming.fiatAmount) {
+      throw new DomainError('支付确认缺少订单金额或币种，已停止自动发卡。', 'payment_confirmation_incomplete', 409);
+    }
+    if (incoming.fiatCurrency !== payment.fiat_currency) {
       throw new DomainError('支付法币不匹配。', 'payment_currency_mismatch', 409);
     }
     if (incoming.fiatAmount && !isSameDecimal(incoming.fiatAmount, payment.fiat_amount)) {
@@ -660,13 +866,60 @@ export class CommerceService {
     });
   }
 
+  recoverStaleFulfillmentJobs(lockMinutes = 10) {
+    return transaction(this.db, () => {
+      const cutoff = new Date(Date.now() - lockMinutes * 60_000).toISOString();
+      const staleJobs = many(
+        this.db,
+        `SELECT id, order_id FROM fulfillment_jobs
+         WHERE status = 'processing' AND locked_at IS NOT NULL AND locked_at <= ?`,
+        cutoff,
+      );
+      let recovered = 0;
+      for (const staleJob of staleJobs) {
+        const order = one(this.db, `${orderWithPayment} WHERE o.id = ?`, staleJob.order_id);
+        const now = nowIso();
+        if (order?.status === 'completed') {
+          this.completeJob(staleJob.id);
+          continue;
+        }
+        if (order?.payment_status === 'paid' && ['paid', 'fulfilling', 'fulfillment_failed'].includes(order.status)) {
+          run(
+            this.db,
+            `UPDATE orders
+             SET status = 'paid', fulfillment_status = 'pending', failure_reason = NULL, updated_at = ?
+             WHERE id = ?`,
+            now,
+            order.id,
+          );
+        }
+        run(
+          this.db,
+          `UPDATE fulfillment_jobs
+           SET status = 'failed', run_after = ?, locked_at = NULL,
+               last_error = 'worker_lock_expired', updated_at = ?
+           WHERE id = ? AND status = 'processing'`,
+          now,
+          now,
+          staleJob.id,
+        );
+        recovered += 1;
+      }
+      return recovered;
+    });
+  }
+
   claimFulfillmentJob() {
     return transaction(this.db, () => {
       const job = one(
         this.db,
-        `SELECT * FROM fulfillment_jobs
-         WHERE status IN ('pending', 'failed') AND run_after <= ? AND attempts < 8
-         ORDER BY run_after, created_at LIMIT 1`,
+        `SELECT fj.* FROM fulfillment_jobs fj
+         JOIN orders o ON o.id = fj.order_id
+         JOIN payment_transactions pt ON pt.order_id = o.id
+         WHERE fj.status IN ('pending', 'failed') AND fj.run_after <= ? AND fj.attempts < 8
+           AND o.status IN ('paid', 'fulfilling', 'fulfillment_failed')
+           AND pt.status = 'paid'
+         ORDER BY fj.run_after, fj.created_at LIMIT 1`,
         nowIso(),
       );
       if (!job) return null;
@@ -683,6 +936,59 @@ export class CommerceService {
     });
   }
 
+  refreshReservedCards(order) {
+    const now = nowIso();
+    const reserved = many(
+      this.db,
+      `SELECT * FROM card_credentials
+       WHERE reserved_for_order_id = ? AND state = 'reserved'
+       ORDER BY reserved_at, id`,
+      order.id,
+    );
+    const activeReserved = reserved.filter((card) => !card.expires_at || card.expires_at > now);
+    const expiredReserved = reserved.filter((card) => card.expires_at && card.expires_at <= now);
+    for (const card of expiredReserved) {
+      run(
+        this.db,
+        `UPDATE card_credentials
+         SET state = 'disabled', reserved_for_order_id = NULL, reserved_at = NULL
+         WHERE id = ? AND state = 'reserved'`,
+        card.id,
+      );
+    }
+    const missing = Number(order.quantity) - activeReserved.length;
+    if (missing > 0) {
+      const replacements = many(
+        this.db,
+        `SELECT id FROM card_credentials
+         WHERE variant_id = ? AND state = 'available'
+           AND (expires_at IS NULL OR expires_at > ?)
+         ORDER BY created_at, id LIMIT ?`,
+        order.variant_id,
+        now,
+        missing,
+      );
+      for (const card of replacements) {
+        run(
+          this.db,
+          `UPDATE card_credentials
+           SET state = 'reserved', reserved_for_order_id = ?, reserved_at = ?
+           WHERE id = ? AND state = 'available'`,
+          order.id,
+          now,
+          card.id,
+        );
+      }
+    }
+    return many(
+      this.db,
+      `SELECT * FROM card_credentials
+       WHERE reserved_for_order_id = ? AND state = 'reserved'
+       ORDER BY reserved_at, id`,
+      order.id,
+    );
+  }
+
   fulfillJob(job) {
     try {
       transaction(this.db, () => {
@@ -695,15 +1001,9 @@ export class CommerceService {
         if (!['paid', 'fulfilling', 'fulfillment_failed'].includes(order.status)) {
           throw new Error('Order is not eligible for fulfillment.');
         }
-        const cards = many(
-          this.db,
-          `SELECT * FROM card_credentials
-           WHERE reserved_for_order_id = ? AND state = 'reserved'
-           ORDER BY reserved_at, id`,
-          order.id,
-        );
+        const cards = this.refreshReservedCards(order);
         if (cards.length !== Number(order.quantity)) {
-          throw new Error(`Reserved card count ${cards.length} does not equal order quantity ${order.quantity}.`);
+          throw new Error(`Available card count ${cards.length} does not equal order quantity ${order.quantity}.`);
         }
         const now = nowIso();
         run(
@@ -759,7 +1059,7 @@ export class CommerceService {
         run(
           this.db,
           `UPDATE orders SET status = 'fulfillment_failed', fulfillment_status = 'failed', failure_reason = ?, updated_at = ?
-           WHERE id = ? AND status != 'completed'`,
+           WHERE id = ? AND status NOT IN ('completed', 'refunded')`,
           message,
           now,
           job.orderId,
@@ -781,13 +1081,16 @@ export class CommerceService {
   }
 
   async reconcileDuePayments(limit = 30) {
+    const retryBefore = new Date(Date.now() - 60_000).toISOString();
     const due = many(
       this.db,
       `${orderWithPayment}
        WHERE o.status IN ('pending_payment', 'payment_confirming')
          AND o.payment_deadline <= ?
+         AND pt.updated_at <= ?
        ORDER BY o.payment_deadline LIMIT ?`,
       nowIso(),
+      retryBefore,
       limit,
     );
     let processed = 0;
@@ -809,13 +1112,29 @@ export class CommerceService {
         processed += 1;
         continue;
       }
-      if (!order.provider_order_id) continue;
       try {
-        const providerOrder = await this.paymentProvider.getOrder(order.provider_order_id);
-        this.applyProviderOrder(providerOrder);
+        if (!order.provider_order_id) {
+          await this.ensurePaymentSession(order, order.user_id);
+        } else {
+          const providerOrder = await this.paymentProvider.getOrder(order.provider_order_id);
+          this.applyProviderOrder(providerOrder);
+        }
         processed += 1;
-      } catch {
-        // Do not release stock on an unverified timeout; the provider can still settle the payment.
+      } catch (error) {
+        const now = nowIso();
+        run(
+          this.db,
+          `UPDATE payment_transactions
+           SET provider_payload = ?, updated_at = ?
+           WHERE order_id = ? AND status != 'paid'`,
+          JSON.stringify({
+            reconciliationError: typeof error?.code === 'string' ? error.code : 'payment_reconciliation_error',
+            attemptedAt: now,
+          }),
+          now,
+          order.id,
+        );
+        // Keep stock reserved until the provider confirms an expired or canceled state.
       }
     }
     return processed;
@@ -928,7 +1247,7 @@ export class CommerceService {
       assertSlug(input.slug),
       String(input.description ?? '').trim(),
       String(input.instructions ?? '').trim(),
-      input.imageUrl ? String(input.imageUrl).trim() : null,
+      assertImagePath(input.imageUrl),
       status,
       now,
       now,
@@ -955,7 +1274,7 @@ export class CommerceService {
       input.slug === undefined ? current.slug : assertSlug(input.slug),
       input.description === undefined ? current.description : String(input.description).trim(),
       input.instructions === undefined ? current.instructions : String(input.instructions).trim(),
-      input.imageUrl === undefined ? current.image_url : input.imageUrl || null,
+      input.imageUrl === undefined ? current.image_url : assertImagePath(input.imageUrl),
       status,
       nowIso(),
       productId,
@@ -986,6 +1305,26 @@ export class CommerceService {
     );
     this.audit(actor.id, 'variant.created', 'variant', id, { sku: input.sku });
     return { id };
+  }
+
+  updateVariant(actor, variantId, input) {
+    const current = one(this.db, 'SELECT * FROM product_variants WHERE id = ?', variantId);
+    if (!current) throw new DomainError('SKU 不存在。', 'variant_not_found', 404);
+    run(
+      this.db,
+      `UPDATE product_variants
+       SET name = ?, sku = ?, price_fen = ?, max_per_order = ?, position = ?, is_active = ?, updated_at = ?
+       WHERE id = ?`,
+      input.name === undefined ? current.name : assertText(input.name, '规格名称', 1, 120),
+      input.sku === undefined ? current.sku : assertText(input.sku, 'SKU', 1, 100),
+      input.priceFen === undefined ? current.price_fen : assertInteger(input.priceFen, '价格', 1, 100000000),
+      input.maxPerOrder === undefined ? current.max_per_order : assertInteger(input.maxPerOrder, '单次限购', 1, 20),
+      input.position === undefined ? current.position : assertInteger(input.position, '排序', 0, 10000),
+      input.isActive === undefined ? current.is_active : input.isActive ? 1 : 0,
+      nowIso(),
+      variantId,
+    );
+    this.audit(actor.id, 'variant.updated', 'variant', variantId, { fields: Object.keys(input) });
   }
 
   dashboard() {
@@ -1063,6 +1402,9 @@ export class CommerceService {
       if (order.status === 'completed') {
         throw new DomainError('订单已经完成，无需重新发卡。', 'fulfillment_not_retryable', 409);
       }
+      if (order.payment_status !== 'paid') {
+        throw new DomainError('订单支付状态不允许重新发卡。', 'fulfillment_not_retryable', 409);
+      }
       if (!['paid', 'fulfilling', 'fulfillment_failed'].includes(order.status)) {
         throw new DomainError('当前订单尚未具备重新发卡条件。', 'fulfillment_not_retryable', 409);
       }
@@ -1109,10 +1451,14 @@ export class CommerceService {
   }
 
   releaseCards(orderId) {
+    const now = nowIso();
     run(
       this.db,
-      `UPDATE card_credentials SET state = 'available', reserved_for_order_id = NULL, reserved_at = NULL
+      `UPDATE card_credentials
+       SET state = CASE WHEN expires_at IS NOT NULL AND expires_at <= ? THEN 'disabled' ELSE 'available' END,
+           reserved_for_order_id = NULL, reserved_at = NULL
        WHERE reserved_for_order_id = ? AND state = 'reserved'`,
+      now,
       orderId,
     );
   }

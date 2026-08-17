@@ -9,7 +9,9 @@
     "start": "NODE_ENV=production node apps/api/server.js",
     "worker": "node apps/worker/worker.js",
     "seed": "node scripts/seed.js",
-    "test": "node --test test/*.test.js"
+    "backup": "node scripts/backup.js",
+    "payment:check": "node scripts/check-payment.js",
+    "test": "for file in test/*.test.js; do node --test \"$file\" || exit 1; done"
   },
   "engines": {
     "node": ">=22.5.0"

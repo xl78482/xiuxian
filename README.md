@@ -2,6 +2,8 @@
 
 Telegram Mini App 自动发卡平台。当前版本使用零第三方运行时依赖的 Node.js 22 + SQLite，支付层通过适配器隔离，首个适配器为 DujiaoPay，默认开发环境使用 mock 支付。
 
+尚未完成的上线与运营能力见 [ROADMAP.md](./ROADMAP.md)。
+
 ## 已实现
 
 - Telegram Mini App 登录，服务端验签 `initData`
@@ -66,6 +68,12 @@ DUJIAOPAY_TOKEN_ID=tron-usdt
 SUPPORT_URL=https://t.me/your_support_bot
 ```
 
+配置完成后先用官方 `/v1/whoami` 端点验证 HMAC 凭据与服务器时钟：
+
+```sh
+npm run payment:check
+```
+
 `SESSION_SECRET` 至少 32 个字符，`CARD_ENCRYPTION_KEY` 必须是 64 位十六进制字符。密钥只放在服务端环境变量，不要写入前端、数据库或 Git。
 
 在 DujiaoPay 控制台将 Webhook 指向：
@@ -81,15 +89,28 @@ https://mini.example.com/api/webhooks/dujiaopay
 先准备生产 `.env` 和持久化目录：
 
 ```sh
-mkdir -p data
-chmod 700 data
+mkdir -p data backups
+chown -R 1000:1000 data backups
+chmod 700 data backups
 docker compose up -d --build
 
 docker compose ps
 docker compose logs -f xiuxian-worker
 ```
 
-API 和 Worker 必须共享同一个 `./data`，不要只启动 API。反向代理负责 TLS，`APP_ORIGIN` 必须使用 HTTPS。上线前应限制服务器防火墙只暴露反向代理端口，并为 `data/` 做备份。
+API 和 Worker 必须共享同一个 `./data`，不要只启动 API。反向代理负责 TLS，`APP_ORIGIN` 必须使用 HTTPS。只有当 API 端口仅能由可信反向代理访问，且代理会覆盖 `X-Forwarded-For` 时，才将 `TRUST_PROXY=true`；否则保持 `false`，防止客户端伪造 IP 绕过限流。上线前应限制服务器防火墙只暴露反向代理端口。
+
+SQLite 使用 WAL 模式，不要在服务运行时直接复制数据库文件。使用内置在线备份命令生成一致性快照：
+
+```sh
+npm run backup
+# Docker 部署
+# docker compose exec xiuxian npm run backup
+# 或指定备份目录
+npm run backup -- /mnt/secure-backups
+```
+
+备份文件默认写入 `backups/`，权限为 `0600`。数据库结构由 `schema_migrations` 记录版本；部署新版本前先备份，应用启动时会按顺序执行尚未应用的迁移。
 
 ## API 关键路径
 
@@ -102,6 +123,7 @@ API 和 Worker 必须共享同一个 `./data`，不要只启动 API。反向代�
 - `POST /api/auth/admin/telegram`：Telegram 管理员登录
 - `GET /api/admin/dashboard`：运营数据
 - `POST /api/admin/cards/import`：批量加密导入卡密
+- `GET /api/admin/webhook-failures`：查看验签成功但业务处理失败的回调
 - `POST /api/admin/orders/:orderNo/retry-fulfillment`：异常订单重新发卡
 
 ## 安全边界
@@ -110,6 +132,8 @@ API 和 Worker 必须共享同一个 `./data`，不要只启动 API。反向代�
 - 订单金额、币种、链和商户订单号由服务端核对，不能信任前端或回调中的展示字段。
 - 支付回调按原始字节验签，重复 Webhook 和重复发卡任务均幂等。
 - 生产环境强制 HTTPS、Telegram Bot Token，并禁用 mock 支付和开发登录。
+- 失败 Webhook 会记录原因并返回非 2xx 触发渠道重试，可在后台订单页查看。
+- Worker 会恢复超时锁，发卡前会禁用过期卡并从同 SKU 自动补卡。
 - 商品删除使用归档，不物理删除历史关联数据。
 
 ## 目录

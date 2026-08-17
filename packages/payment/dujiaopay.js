@@ -61,17 +61,23 @@ export class DujiaoPayProvider {
       success_url: input.successUrl,
       cancel_url: input.cancelUrl,
     }, input.merchantOrderId);
+    const mapped = this.mapOrder(data);
     return {
       provider: this.name,
-      providerOrderId: required(data.order_id, 'order_id'),
-      status: data.status === 'awaiting_payment' ? 'awaiting_payment' : 'pending',
-      chain: typeof data.chain === 'string' ? data.chain : null,
-      tokenId: typeof data.token_id === 'string' ? data.token_id : null,
-      payableAmount: typeof data.payable_amount === 'string' ? data.payable_amount : null,
+      ...mapped,
       payAddress: typeof data.pay_address === 'string' ? data.pay_address : null,
-      checkoutUrl: required(data.checkout_url, 'checkout_url'),
+      checkoutUrl: typeof data.checkout_url === 'string' ? data.checkout_url : null,
       expiresAt: typeof data.expires_at === 'string' ? data.expires_at : null,
       raw: data,
+    };
+  }
+
+  async whoAmI() {
+    const data = await this.request('GET', '/v1/whoami');
+    return {
+      merchantId: required(data.merchant_id, 'merchant_id'),
+      projectId: required(data.project_id, 'project_id'),
+      apiKeyId: required(data.api_key_id, 'api_key_id'),
     };
   }
 
@@ -113,7 +119,8 @@ export class DujiaoPayProvider {
       throw new PaymentProviderError('DujiaoPay webhook is not valid JSON.', 'invalid_webhook', 400);
     }
     const eventTypes = new Set(['order.created', 'order.method_selected', 'order.confirming', 'order.paid', 'order.expired', 'order.canceled', 'webhook.test', 'unmatched_claim.claimed', 'refund.recorded']);
-    if (!event || event.event_id !== eventHeaderId || !eventTypes.has(event.event_type) || !event.data || typeof event.data !== 'object' || Array.isArray(event.data)) {
+    const createdAt = new Date(event?.created_at);
+    if (!event || event.event_id !== eventHeaderId || event.event_version !== 'v1' || !eventTypes.has(event.event_type) || Number.isNaN(createdAt.getTime()) || !event.data || typeof event.data !== 'object' || Array.isArray(event.data)) {
       throw new PaymentProviderError('DujiaoPay webhook payload is invalid.', 'invalid_webhook', 400);
     }
     return event;
@@ -145,6 +152,7 @@ export class DujiaoPayProvider {
           ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
         },
         body: bodyText || undefined,
+        redirect: 'error',
         signal: controller.signal,
       });
       const text = await response.text();
@@ -171,17 +179,22 @@ export class DujiaoPayProvider {
   }
 
   mapOrder(data) {
+    const rawStatus = required(data.status, 'status');
+    const status = rawStatus === 'created' ? 'awaiting_payment' : rawStatus;
+    if (!['awaiting_payment', 'pending', 'confirming', 'paid', 'expired', 'canceled'].includes(status)) {
+      throw new PaymentProviderError('DujiaoPay returned an unsupported order status.', 'dujiaopay_invalid_status', 502);
+    }
     return {
       providerOrderId: required(data.order_id, 'order_id'),
       merchantOrderId: typeof data.merchant_order_id === 'string' ? data.merchant_order_id : null,
-      status: required(data.status, 'status'),
+      status,
       chain: typeof data.chain === 'string' ? data.chain : null,
       tokenId: typeof data.token_id === 'string' ? data.token_id : null,
       payableAmount: typeof data.payable_amount === 'string' ? data.payable_amount : null,
       fiatCurrency: typeof data.fiat_currency === 'string' ? data.fiat_currency : null,
       fiatAmount: typeof data.fiat_amount === 'string' ? data.fiat_amount : null,
       paidAt: typeof data.paid_at === 'string' ? data.paid_at : null,
-      transactionId: typeof data.tx_hash === 'string' ? data.tx_hash : data.tx_id ?? null,
+      transactionId: typeof data.tx_hash === 'string' ? data.tx_hash : typeof data.tx_id === 'string' ? data.tx_id : null,
       raw: data,
     };
   }

@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { isIP } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { createRuntime } from '../../packages/core/runtime.js';
 import { AuthError, createSessionToken, verifySessionToken, verifyTelegramInitData } from '../../packages/core/crypto.js';
@@ -16,6 +17,7 @@ const { config, commerce, paymentProvider } = runtime;
 if (!config.isProduction) seedDemoData(runtime);
 
 const requestCounts = new Map();
+let lastRateLimitCleanup = 0;
 const JSON_LIMIT = 1024 * 1024;
 const MIME_TYPES = {
   '.css': 'text/css; charset=utf-8',
@@ -53,16 +55,23 @@ function sendJson(response, status, value) {
   response.end(body);
 }
 
-function sendError(response, error) {
+function sendError(response, error, requestId) {
   if (error instanceof DomainError || error instanceof PaymentProviderError || error instanceof AuthError) {
-    return sendJson(response, error.status, { error: { code: error.code, message: error.message } });
+    return sendJson(response, error.status, { error: { code: error.code, message: error.message, requestId } });
+  }
+  if (error && typeof error === 'object' && String(error.code ?? '').includes('SQLITE_CONSTRAINT')) {
+    return sendJson(response, 409, { error: { code: 'resource_conflict', message: 'Slug、SKU 或卡密已存在，请使用其他值。', requestId } });
   }
   if (error instanceof SyntaxError) {
-    return sendJson(response, 400, { error: { code: 'invalid_json', message: '请求 JSON 格式无效。' } });
+    return sendJson(response, 400, { error: { code: 'invalid_json', message: '请求 JSON 格式无效。', requestId } });
   }
-  console.error(error instanceof Error ? error.stack : error);
+  console.error(JSON.stringify({ requestId, error: error instanceof Error ? error.stack : String(error) }));
   return sendJson(response, 500, {
-    error: { code: 'internal_error', message: config.isProduction ? '服务暂时不可用，请稍后重试。' : String(error?.message ?? error) },
+    error: {
+      code: 'internal_error',
+      message: config.isProduction ? '服务暂时不可用，请稍后重试。' : String(error?.message ?? error),
+      requestId,
+    },
   });
 }
 
@@ -76,10 +85,14 @@ function serveFile(response, baseDirectory, relativePath) {
   if (!target || !fs.existsSync(target) || !fs.statSync(target).isFile()) return false;
   const content = fs.readFileSync(target);
   setBaseHeaders(response);
+  const extension = path.extname(target).toLowerCase();
+  const cacheControl = ['.html', '.js', '.css'].includes(extension)
+    ? 'no-cache'
+    : 'public, max-age=86400, immutable';
   response.writeHead(200, {
-    'Content-Type': MIME_TYPES[path.extname(target).toLowerCase()] ?? 'application/octet-stream',
+    'Content-Type': MIME_TYPES[extension] ?? 'application/octet-stream',
     'Content-Length': content.length,
-    'Cache-Control': target.endsWith('.html') ? 'no-cache' : 'public, max-age=3600',
+    'Cache-Control': cacheControl,
   });
   response.end(content);
   return true;
@@ -130,10 +143,24 @@ function requireIdempotencyKey(request) {
   return value;
 }
 
+function requestAddress(request) {
+  const directAddress = request.socket.remoteAddress ?? 'unknown';
+  if (!config.trustProxy) return directAddress;
+  const forwarded = request.headers['x-forwarded-for'];
+  const candidate = typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : '';
+  return isIP(candidate) ? candidate : directAddress;
+}
+
 function checkRateLimit(request, response, limit = 120, windowMs = 60_000) {
-  const address = request.socket.remoteAddress ?? 'unknown';
-  const key = `${address}:${new URL(request.url, config.appOrigin).pathname}`;
   const now = Date.now();
+  if (now - lastRateLimitCleanup >= 60_000) {
+    for (const [key, value] of requestCounts) {
+      if (now - value.startedAt > Math.max(windowMs * 2, 300_000)) requestCounts.delete(key);
+    }
+    lastRateLimitCleanup = now;
+  }
+  const address = requestAddress(request);
+  const key = `${address}:${new URL(request.url, config.appOrigin).pathname}`;
   const state = requestCounts.get(key) ?? { startedAt: now, count: 0 };
   if (now - state.startedAt >= windowMs) {
     state.startedAt = now;
@@ -185,7 +212,14 @@ async function handleApi(request, response, pathname) {
   const method = request.method ?? 'GET';
 
   if (method === 'GET' && pathname === '/api/health') {
-    return sendJson(response, 200, { ok: true, provider: paymentProvider.name, environment: config.nodeEnv });
+    const database = runtime.db.prepare('SELECT MAX(version) AS schemaVersion FROM schema_migrations').get();
+    return sendJson(response, 200, {
+      ok: true,
+      database: 'ok',
+      schemaVersion: Number(database.schemaVersion ?? 0),
+      provider: paymentProvider.name,
+      environment: config.nodeEnv,
+    });
   }
 
   if (method === 'POST' && pathname === '/api/auth/telegram') {
@@ -272,7 +306,15 @@ async function handleApi(request, response, pathname) {
     if (paymentProvider.name !== 'dujiaopay') throw new DomainError('DujiaoPay 未启用。', 'not_found', 404);
     const event = paymentProvider.verifyWebhook(await readBody(request), request.headers);
     const result = commerce.processWebhook(event);
-    return sendJson(response, result.duplicate ? 200 : 202, { received: true, duplicate: result.duplicate });
+    const status = result.processed
+      ? (result.duplicate ? 200 : 202)
+      : result.error === 'webhook_payload_conflict' ? 409 : 500;
+    return sendJson(response, status, {
+      received: true,
+      duplicate: result.duplicate,
+      processed: result.processed ?? !result.error,
+      errorCode: result.error ?? null,
+    });
   }
 
   if (method === 'GET' && pathname === '/api/admin/dashboard') {
@@ -290,6 +332,10 @@ async function handleApi(request, response, pathname) {
   if (method === 'GET' && pathname === '/api/admin/orders') {
     requireAdmin(request);
     return sendJson(response, 200, commerce.listAdminOrders());
+  }
+  if (method === 'GET' && pathname === '/api/admin/webhook-failures') {
+    requireAdmin(request);
+    return sendJson(response, 200, commerce.listWebhookFailures());
   }
   if (method === 'POST' && pathname === '/api/admin/categories') {
     const user = requireAdmin(request);
@@ -310,6 +356,14 @@ async function handleApi(request, response, pathname) {
   if (method === 'POST' && pathname === '/api/admin/variants') {
     const user = requireAdmin(request);
     return sendJson(response, 201, commerce.createVariant(user, assertObject(await readJson(request))));
+  }
+  const variantMatch = pathname.match(/^\/api\/admin\/variants\/([A-Za-z0-9_-]+)$/);
+  if (method === 'PATCH' && variantMatch) {
+    const user = requireAdmin(request);
+    commerce.updateVariant(user, variantMatch[1], assertObject(await readJson(request)));
+    setBaseHeaders(response);
+    response.writeHead(204);
+    return response.end();
   }
   const fulfillmentRetryMatch = pathname.match(/^\/api\/admin\/orders\/(XX\d{14}[A-F0-9]{8})\/retry-fulfillment$/);
   if (method === 'POST' && fulfillmentRetryMatch) {
@@ -354,6 +408,7 @@ function serveApplication(request, response, pathname) {
 
 const server = http.createServer(async (request, response) => {
   const requestId = crypto.randomUUID();
+  response.setHeader('X-Request-ID', requestId);
   try {
     const url = new URL(request.url ?? '/', config.appOrigin);
     if (url.pathname.startsWith('/api/')) {
@@ -363,7 +418,7 @@ const server = http.createServer(async (request, response) => {
     if (serveApplication(request, response, url.pathname)) return;
     sendJson(response, 404, { error: { code: 'not_found', message: '资源不存在。', requestId } });
   } catch (error) {
-    sendError(response, error);
+    sendError(response, error, requestId);
   }
 });
 
@@ -373,6 +428,7 @@ if (!config.isProduction) {
     if (ticking) return;
     ticking = true;
     Promise.resolve()
+      .then(() => runtime.commerce.recoverStaleFulfillmentJobs())
       .then(() => runtime.commerce.processJobs(20))
       .then(() => runtime.commerce.reconcileDuePayments(30))
       .catch((error) => console.error(error instanceof Error ? error.message : error))
@@ -384,11 +440,22 @@ server.listen(config.port, '0.0.0.0', () => {
   console.log(`XiuXian API listening at ${config.appOrigin}`);
 });
 
+let shuttingDown = false;
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.once(signal, () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    const forceClose = setTimeout(() => {
+      server.closeAllConnections?.();
+      runtime.db.close();
+      process.exit(1);
+    }, 15_000);
+    forceClose.unref();
     server.close(() => {
+      clearTimeout(forceClose);
       runtime.db.close();
       process.exit(0);
     });
+    server.closeIdleConnections?.();
   });
 }

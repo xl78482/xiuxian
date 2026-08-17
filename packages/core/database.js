@@ -171,7 +171,30 @@ export function openDatabase(databasePath) {
   fs.mkdirSync(path.dirname(databasePath), { recursive: true });
   const db = new DatabaseSync(databasePath);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;');
-  db.exec(schema);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version INTEGER PRIMARY KEY,
+      applied_at TEXT NOT NULL
+    );
+  `);
+  const migrations = [{ version: 1, sql: schema }];
+  const applied = new Set(db.prepare('SELECT version FROM schema_migrations').all().map((row) => Number(row.version)));
+  for (const migration of migrations) {
+    if (applied.has(migration.version)) continue;
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const alreadyApplied = db.prepare('SELECT 1 FROM schema_migrations WHERE version = ?').get(migration.version);
+      if (!alreadyApplied) {
+        db.exec(migration.sql);
+        db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)').run(migration.version, nowIso());
+      }
+      db.exec('COMMIT');
+    } catch (error) {
+      db.exec('ROLLBACK');
+      db.close();
+      throw error;
+    }
+  }
   return db;
 }
 

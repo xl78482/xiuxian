@@ -13,6 +13,7 @@
   background: var(--paper);
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { margin: 0; min-width: 320px; background: var(--paper); }
 button, input, textarea, select { font: inherit; }
 button { cursor: pointer; }
@@ -31,9 +32,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .sidebar-foot strong { display: block; color: #e8f0e9; font-size: 12px; }
 .main { min-width: 0; }
 .main-top { display: flex; align-items: center; justify-content: space-between; gap: 20px; min-height: 78px; padding: 0 40px; border-bottom: 1px solid var(--line); background: rgba(251,252,249,.7); }
-.main-top h1 { margin: 0; font-size: 21px; letter-spacing: -.04em; }
+.main-top h1 { margin: 0; font-size: 21px; letter-spacing: 0; }
 .main-top p { margin: 5px 0 0; color: var(--muted); font-size: 11px; }
 .top-actions { display: flex; gap: 8px; }
+.top-actions .outline-button, .top-actions .solid-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none; white-space: nowrap; }
+.top-actions .outline-button svg, .top-actions .solid-button svg { width: 15px; height: 15px; flex: 0 0 15px; fill: none; stroke: currentColor; stroke-width: 1.7; }
 .outline-button, .solid-button { min-height: 37px; padding: 0 13px; border-radius: 4px; font-size: 12px; font-weight: 700; }
 .outline-button { border: 1px solid var(--line); color: var(--ink); background: transparent; }
 .outline-button:hover { border-color: var(--teal); color: var(--teal); }
@@ -46,10 +49,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .kpi-top { display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 11px; }
 .kpi-icon { width: 28px; height: 28px; display: grid; place-items: center; color: var(--teal); background: var(--teal-soft); border-radius: 50%; }
 .kpi-icon svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; }
-.kpi-value { margin-top: 18px; font-size: 28px; letter-spacing: -.06em; }
+.kpi-value { margin-top: 18px; font-size: 28px; letter-spacing: 0; }
 .kpi-value small { margin-left: 4px; color: var(--muted); font-size: 12px; letter-spacing: 0; }
 .section-bar { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin-top: 32px; margin-bottom: 14px; }
-.section-bar h2 { margin: 0; font-size: 17px; letter-spacing: -.03em; }
+.section-bar h2 { margin: 0; font-size: 17px; letter-spacing: 0; }
 .section-bar p { margin: 5px 0 0; color: var(--muted); font-size: 11px; }
 .table-wrap { overflow-x: auto; border: 1px solid var(--line); background: var(--panel); }
 table { width: 100%; border-collapse: collapse; min-width: 680px; }
@@ -79,6 +82,10 @@ td small { display: block; margin-top: 4px; color: var(--muted); font-size: 10px
 .field input, .field textarea, .field select { width: 100%; padding: 10px 11px; border: 1px solid var(--line); border-radius: 3px; color: var(--ink); background: #fff; font-size: 12px; }
 .field textarea { min-height: 120px; resize: vertical; line-height: 1.5; }
 .form-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
+.variant-editor-list { grid-column: 1 / -1; display: grid; gap: 8px; }
+.variant-editor-row { display: grid; grid-template-columns: repeat(4, minmax(105px, 1fr)) auto auto; gap: 9px; align-items: end; padding: 12px 0; border-top: 1px solid var(--line); }
+.variant-toggle { display: inline-flex; align-items: center; gap: 6px; min-height: 37px; color: var(--muted); font-size: 11px; white-space: nowrap; }
+.variant-toggle input { width: 15px; height: 15px; accent-color: var(--teal); }
 .notice { padding: 12px 13px; color: var(--muted); background: #eef2ec; font-size: 11px; line-height: 1.6; }
 .notice.error { color: #914d3d; background: #f3dcd5; }
 .login-screen { min-height: 100vh; display: grid; place-items: center; padding: 20px; background: var(--ink); }
@@ -89,4 +96,4 @@ td small { display: block; margin-top: 4px; color: var(--muted); font-size: 10px
 .toast { position: fixed; z-index: 20; left: 50%; bottom: 25px; transform: translate(-50%, 15px); opacity: 0; padding: 11px 15px; color: #fff; background: var(--ink); font-size: 12px; transition: .25s ease; pointer-events: none; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 @media (max-width: 1050px) { .admin-shell { grid-template-columns: 190px 1fr; } .main-top, .content { padding-left: 25px; padding-right: 25px; } .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .product-row { grid-template-columns: 1fr; gap: 12px; } }
-@media (max-width: 680px) { .admin-shell { display: block; } .sidebar { min-height: auto; padding: 13px 14px; } .admin-brand { padding: 0 5px 13px; } .side-label, .sidebar-foot { display: none; } .side-nav { display: flex; overflow-x: auto; } .side-nav button { width: auto; flex: 0 0 auto; padding: 9px 10px; } .main-top { min-height: 68px; padding: 0 17px; } .main-top h1 { font-size: 18px; } .main-top p { display: none; } .content { padding: 22px 17px 50px; } .kpi-grid { gap: 8px; } .kpi { min-height: 105px; padding: 13px; } .kpi-value { margin-top: 13px; font-size: 22px; } .form-panel { grid-template-columns: 1fr; } .field.full, .form-panel h3, .form-actions { grid-column: auto; } }
+@media (max-width: 680px) { .admin-shell { display: block; } .sidebar { min-height: auto; padding: 13px 14px; } .admin-brand { padding: 0 5px 13px; } .side-label, .sidebar-foot { display: none; } .side-nav { display: flex; overflow-x: auto; padding-right: 16px; scrollbar-width: none; } .side-nav::-webkit-scrollbar { display: none; } .side-nav button { width: auto; flex: 0 0 auto; padding: 9px 10px; } .main-top { min-height: 68px; padding: 0 17px; } .main-top h1 { font-size: 18px; } .main-top p { display: none; } .main-top .top-actions .outline-button { min-height: 34px; padding: 0 9px; } .content { padding: 22px 17px 50px; } .kpi-grid { gap: 8px; } .kpi { min-height: 105px; padding: 13px; } .kpi-value { margin-top: 13px; font-size: 22px; } .form-panel { grid-template-columns: 1fr; } .field.full, .form-panel h3, .form-actions, .variant-editor-list { grid-column: auto; } .variant-editor-row { grid-template-columns: 1fr; align-items: stretch; } }

@@ -77,6 +77,8 @@ export function createCardCrypto(hexKey) {
 export function verifyTelegramInitData(initData, botToken, maxAgeSeconds = 86400) {
   if (!botToken) throw new AuthError('Telegram 登录尚未配置。', 'telegram_not_configured');
   const params = new URLSearchParams(initData);
+  const keys = [...params.keys()];
+  if (new Set(keys).size !== keys.length) throw new AuthError('Telegram 登录数据包含重复字段。');
   const suppliedHash = params.get('hash');
   const authDate = Number(params.get('auth_date'));
   const userJson = params.get('user');

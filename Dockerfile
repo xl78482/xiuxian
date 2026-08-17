@@ -1,10 +1,7 @@
-FROM node:22-alpine
+FROM node:22.23.2-alpine
 WORKDIR /app
-COPY package.json ./
-COPY apps ./apps
-COPY packages ./packages
-COPY scripts ./scripts
-COPY . .
-RUN mkdir -p /app/data
+COPY --chown=node:node . .
+RUN mkdir -p /app/data && chown node:node /app/data
+USER node
 EXPOSE 3000
 CMD ["node", "apps/api/server.js"]

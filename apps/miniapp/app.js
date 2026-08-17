@@ -429,6 +429,11 @@ async function initialize() {
   }
 }
 
-document.addEventListener('click', (event) => void onClick(event));
+document.addEventListener('click', (event) => {
+  void onClick(event).catch((error) => {
+    event.target.closest('[data-action]')?.removeAttribute('disabled');
+    showToast(error instanceof Error ? error.message : '操作失败，请稍后重试。');
+  });
+});
 document.addEventListener('change', onChange);
 void initialize();

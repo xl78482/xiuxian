@@ -7,6 +7,7 @@ const state = {
   products: [],
   categories: [],
   orders: [],
+  webhookFailures: [],
   editingProductId: null,
   message: '',
 };
@@ -81,7 +82,12 @@ async function loadViewData() {
   if (state.view === 'overview' || state.view === 'products' || state.view === 'inventory') {
     [state.products, state.categories] = await Promise.all([api('/api/admin/products'), api('/api/admin/categories')]);
   }
-  if (state.view === 'orders') state.orders = await api('/api/admin/orders');
+  if (state.view === 'orders') {
+    [state.orders, state.webhookFailures] = await Promise.all([
+      api('/api/admin/orders'),
+      api('/api/admin/webhook-failures'),
+    ]);
+  }
 }
 
 function sidebar() {
@@ -143,6 +149,8 @@ function productEditor(product) {
     <div class="field"><label>分类</label><select name="edit-category"><option value="">未分类</option>${state.categories.map((c) => `<option value="${esc(c.id)}" ${c.id === product.categoryId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div><div class="field"><label>状态</label><select name="edit-status">${['draft','active','archived'].map((status) => `<option value="${status}" ${status === product.status ? 'selected' : ''}>${statusLabel(status)}</option>`).join('')}</select></div>
     <div class="field full"><label>描述</label><textarea name="edit-description">${esc(product.description)}</textarea></div><div class="field full"><label>使用说明</label><textarea name="edit-instructions">${esc(product.instructions)}</textarea></div><div class="field full"><label>封面路径</label><input name="edit-image" value="${esc(product.imageUrl ?? '')}" /></div>
     <div class="form-actions"><button class="outline-button" data-action="close-editor">取消</button><button class="solid-button" data-action="save-product" data-id="${esc(product.id)}">保存修改</button></div>
+    <h3>现有规格</h3>
+    <div class="variant-editor-list">${product.variants.length ? product.variants.map((variant) => `<div class="variant-editor-row" data-variant-id="${esc(variant.id)}"><div class="field"><label>规格名</label><input data-field="name" value="${esc(variant.name)}" /></div><div class="field"><label>SKU</label><input data-field="sku" value="${esc(variant.sku)}" /></div><div class="field"><label>价格（元）</label><input data-field="price" type="number" min="0.01" step="0.01" value="${(variant.priceFen / 100).toFixed(2)}" /></div><div class="field"><label>单次限购</label><input data-field="limit" type="number" min="1" max="20" value="${variant.maxPerOrder}" /></div><label class="variant-toggle"><input data-field="active" type="checkbox" ${variant.isActive ? 'checked' : ''} /> 在售</label><button class="outline-button" data-action="save-variant" data-id="${esc(variant.id)}">保存规格</button></div>`).join('') : '<div class="notice">暂无规格。</div>'}</div>
     <h3>新增规格</h3><div class="field"><label>规格名</label><input name="variant-name" placeholder="例如：年度会员" /></div><div class="field"><label>SKU</label><input name="variant-sku" placeholder="STREAM-12M" /></div><div class="field"><label>价格（元）</label><input name="variant-price" type="number" min="0.01" step="0.01" placeholder="99.00" /></div><div class="field"><label>单次限购</label><input name="variant-limit" type="number" min="1" max="20" value="5" /></div><div class="form-actions"><button class="outline-button" data-action="create-variant" data-id="${esc(product.id)}">新增规格</button></div>
   </div>`;
 }
@@ -155,7 +163,14 @@ function inventoryView() {
 }
 
 function ordersView() {
-  return `<div class="section-bar"><div><h2>订单记录</h2><p>最近 200 条订单，支付回调和发卡状态分开显示</p></div></div><div class="table-wrap"><table><thead><tr><th>订单</th><th>买家商品</th><th>金额</th><th>支付</th><th>发卡</th><th>创建时间</th><th>处理</th></tr></thead><tbody>${state.orders.length ? state.orders.map((order) => `<tr><td><strong>${esc(order.orderNo)}</strong><small>${new Date(order.createdAt).toLocaleString('zh-CN')}</small></td><td>${esc(order.productTitle)}<small>${esc(order.variantName)} × ${order.quantity}</small></td><td>${money(order.totalPriceFen)}</td><td><span class="status ${statusClass(order.payment.status)}">${statusLabel(order.payment.status === 'paid' ? 'paid' : order.status)}</span></td><td><span class="status ${statusClass(order.status)}">${statusLabel(order.status)}</span></td><td>${new Date(order.createdAt).toLocaleDateString('zh-CN')}</td><td>${order.status === 'fulfillment_failed' ? `<button class="outline-button" data-action="retry-fulfillment" data-order-no="${esc(order.orderNo)}">重试发卡</button>` : '<small>—</small>'}</td></tr>`).join('') : '<tr><td colspan="7"><div class="empty">暂无订单。</div></td></tr>'}</tbody></table></div>`;
+  const orderTable = state.orders.length
+    ? `<div class="table-wrap"><table><thead><tr><th>订单</th><th>买家商品</th><th>金额</th><th>支付</th><th>发卡</th><th>创建时间</th><th>处理</th></tr></thead><tbody>${state.orders.map((order) => `<tr><td><strong>${esc(order.orderNo)}</strong><small>${new Date(order.createdAt).toLocaleString('zh-CN')}</small></td><td>${esc(order.productTitle)}<small>${esc(order.variantName)} × ${order.quantity}</small></td><td>${money(order.totalPriceFen)}</td><td><span class="status ${statusClass(order.payment.status)}">${statusLabel(order.payment.status === 'paid' ? 'paid' : order.status)}</span></td><td><span class="status ${statusClass(order.status)}">${statusLabel(order.status)}</span></td><td>${new Date(order.createdAt).toLocaleDateString('zh-CN')}</td><td>${order.status === 'fulfillment_failed' ? `<button class="outline-button" data-action="retry-fulfillment" data-order-no="${esc(order.orderNo)}">重试发卡</button>` : '<small>—</small>'}</td></tr>`).join('')}</tbody></table></div>`
+    : '<div class="empty">暂无订单。</div>';
+  const failureTable = state.webhookFailures.length
+    ? `<div class="table-wrap"><table><thead><tr><th>事件 ID</th><th>类型</th><th>错误</th><th>接收时间</th></tr></thead><tbody>${state.webhookFailures.map((failure) => `<tr><td><strong>${esc(failure.provider_event_id)}</strong></td><td>${esc(failure.event_type)}</td><td><small>${esc(failure.processing_error)}</small></td><td>${new Date(failure.received_at).toLocaleString('zh-CN')}</td></tr>`).join('')}</tbody></table></div>`
+    : '<div class="empty">当前没有支付回调异常。</div>';
+  return `<div class="section-bar"><div><h2>订单记录</h2><p>最近 200 条订单，支付回调和发卡状态分开显示</p></div></div>${orderTable}
+  <div class="section-bar"><div><h2>支付回调异常</h2><p>验签成功但业务校验未通过的 DujiaoPay 事件</p></div></div>${failureTable}`;
 }
 
 function render() {
@@ -221,6 +236,17 @@ async function onClick(event) {
         imageUrl: form.querySelector('[name="edit-image"]').value || null,
       }) });
       state.editingProductId = null; toast('商品已保存。'); await refresh(); return;
+    }
+    if (action === 'save-variant') {
+      const row = element.closest('.variant-editor-row');
+      await api(`/api/admin/variants/${element.dataset.id}`, { method: 'PATCH', body: JSON.stringify({
+        name: row.querySelector('[data-field="name"]').value,
+        sku: row.querySelector('[data-field="sku"]').value,
+        priceFen: priceToFen(row.querySelector('[data-field="price"]').value),
+        maxPerOrder: Number(row.querySelector('[data-field="limit"]').value),
+        isActive: row.querySelector('[data-field="active"]').checked,
+      }) });
+      toast('SKU 已保存。'); await refresh(); return;
     }
     if (action === 'create-variant') {
       const form = document.querySelector('#product-editor');
