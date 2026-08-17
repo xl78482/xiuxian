@@ -215,6 +215,7 @@ async function handleApi(request, response, pathname) {
     const database = runtime.db.prepare('SELECT MAX(version) AS schemaVersion FROM schema_migrations').get();
     return sendJson(response, 200, {
       ok: true,
+      version: config.appVersion,
       database: 'ok',
       schemaVersion: Number(database.schemaVersion ?? 0),
       provider: paymentProvider.name,
@@ -254,6 +255,7 @@ async function handleApi(request, response, pathname) {
 
   if (method === 'GET' && pathname === '/api/public-config') {
     return sendJson(response, 200, {
+      version: config.appVersion,
       supportUrl: config.supportUrl || null,
       paymentProvider: paymentProvider.name,
       paymentChain: paymentProvider.name === 'dujiaopay' ? config.dujiaopay.chain : 'tron',

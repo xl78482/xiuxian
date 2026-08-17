@@ -31,6 +31,11 @@ function parseIds(value) {
 
 export function loadConfig(rootDirectory = process.cwd()) {
   loadEnvFile(path.join(rootDirectory, '.env'));
+  const packageMetadata = JSON.parse(fs.readFileSync(path.join(rootDirectory, 'package.json'), 'utf8'));
+  const appVersion = packageMetadata.version;
+  if (typeof appVersion !== 'string' || !/^\d+\.\d+\.\d+$/.test(appVersion)) {
+    throw new Error('package.json version must use MAJOR.MINOR.PATCH format.');
+  }
   const nodeEnv = process.env.NODE_ENV ?? 'development';
   const paymentProvider = process.env.PAYMENT_PROVIDER ?? 'mock';
   if (!['mock', 'dujiaopay'].includes(paymentProvider)) {
@@ -50,6 +55,7 @@ export function loadConfig(rootDirectory = process.cwd()) {
 
   const config = {
     rootDirectory,
+    appVersion,
     nodeEnv,
     isProduction: nodeEnv === 'production',
     port: Number(process.env.PORT ?? 3000),
