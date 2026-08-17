@@ -177,7 +177,14 @@ export function openDatabase(databasePath) {
       applied_at TEXT NOT NULL
     );
   `);
-  const migrations = [{ version: 1, sql: schema }];
+  const migrations = [
+    { version: 1, sql: schema },
+    {
+      version: 2,
+      sql: `ALTER TABLE payment_transactions
+            ADD COLUMN payment_instructions TEXT NOT NULL DEFAULT '{}';`,
+    },
+  ];
   const applied = new Set(db.prepare('SELECT version FROM schema_migrations').all().map((row) => Number(row.version)));
   for (const migration of migrations) {
     if (applied.has(migration.version)) continue;

@@ -10,6 +10,7 @@ const state = {
   selectedVariants: new Map(),
   checkout: null,
   orderPoll: null,
+  paymentTimer: null,
   checkoutIdempotencyKey: null,
   publicConfig: null,
 };
@@ -185,7 +186,7 @@ function profileView() {
       <button data-action="switch-tab" data-tab="orders"><span>${icon.receipt}<b>我的订单</b></span>${icon.chevron}</button>
       ${state.publicConfig?.supportUrl ? `<button data-action="open-support"><span>${icon.support}<b>联系售后</b></span>${icon.chevron}</button>` : ''}
       ${state.user?.isAdmin ? `<a href="/admin"><span>${icon.settings}<b>管理后台</b></span>${icon.chevron}</a>` : ''}
-      <div><span>${icon.shield}<b>当前版本</b></span><small>v${esc(state.publicConfig?.version ?? '1.0.3')}</small></div>
+      <div><span>${icon.shield}<b>当前版本</b></span><small>v${esc(state.publicConfig?.version ?? '1.0.4')}</small></div>
     </div>
   </section>`;
 }
@@ -207,7 +208,7 @@ function renderDrawer() {
         <label class="form-label">购买数量</label>
         <div class="quantity-control"><button data-action="quantity-minus" aria-label="减少数量">−</button><output>${quantity}</output><button data-action="quantity-plus" aria-label="增加数量">+</button></div>
         <label class="form-label">支付方式</label>
-        <button class="payment-choice" type="button" aria-label="USDT Tron 支付"><span><strong>${esc(String(state.publicConfig?.paymentToken ?? 'USDT').split('-').at(-1).toUpperCase())} · ${esc((state.publicConfig?.paymentChain ?? 'TRON').toUpperCase())}</strong>独角兽支付托管收银台</span><b></b></button>
+        <button class="payment-choice" type="button" aria-label="USDT Tron 支付"><span><strong>${esc(String(state.publicConfig?.paymentToken ?? 'USDT').split('-').at(-1).toUpperCase())} · ${esc((state.publicConfig?.paymentChain ?? 'TRON').toUpperCase())}</strong>Mini App 内扫码付款，到账后自动发卡</span><b></b></button>
         <div class="total-line"><span>订单合计</span><strong>${money(variant.priceFen * quantity)}</strong></div>
         <button class="primary-button" data-action="submit-checkout">创建支付订单</button>
         ${message ? `<div class="notice error">${esc(message)}</div>` : '<div class="notice">订单将预留对应库存。DujiaoPay 确认到账后，系统会自动发放卡密。</div>'}
@@ -215,11 +216,73 @@ function renderDrawer() {
     </div>`;
 }
 
+function paymentMethodLabel(method) {
+  return {
+    crypto: '数字货币付款',
+    wechat: '微信付款',
+    alipay: '支付宝付款',
+    other: '扫码付款',
+  }[method] ?? '扫码付款';
+}
+
+function paymentStatusCopy(status) {
+  return {
+    pending_payment: '请扫码完成付款',
+    payment_confirming: '已检测到付款，正在确认',
+    paid: '付款已确认，准备发卡',
+    fulfilling: '付款已确认，正在发卡',
+    completed: '付款成功，卡密已发放',
+    payment_expired: '付款二维码已过期',
+    canceled: '订单已关闭',
+  }[status] ?? '等待付款状态更新';
+}
+
+function paymentAmount(order) {
+  const instructions = order.payment.paymentInstructions;
+  if (order.payment.payableAmount && instructions?.amountUnit) {
+    return `${order.payment.payableAmount} ${instructions.amountUnit}`;
+  }
+  if (order.payment.payableAmount) {
+    return `${order.payment.payableAmount} ${order.payment.tokenId ?? 'USDT'}`;
+  }
+  if (order.payment.fiatAmount && order.payment.fiatCurrency) {
+    return `${order.payment.fiatAmount} ${order.payment.fiatCurrency}`;
+  }
+  return money(order.totalPriceFen);
+}
+
+function embeddedPaymentMarkup(order) {
+  const payment = order.payment;
+  const instructions = payment.paymentInstructions;
+  const waiting = ['pending_payment', 'payment_confirming'].includes(order.status);
+  if (!instructions) {
+    return waiting
+      ? '<div class="notice error">当前支付会话缺少内嵌付款信息，请关闭订单后重新下单。</div>'
+      : '';
+  }
+  if (!waiting) {
+    const failed = ['payment_expired', 'canceled'].includes(order.status);
+    return `<div class="payment-result ${failed ? 'failed' : ''}"><span class="payment-live-dot"></span><div><strong>${esc(paymentStatusCopy(order.status))}</strong><small>${esc(paymentMethodLabel(instructions.method))} · ${esc(paymentAmount(order))}</small></div></div>`;
+  }
+  const address = instructions.address;
+  const amount = paymentAmount(order);
+  const expires = payment.expiresAt ? new Date(payment.expiresAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '';
+  return `<section class="embedded-payment" aria-label="内嵌付款信息">
+    <div class="payment-status-line"><span class="payment-live-dot"></span><strong>${esc(paymentStatusCopy(order.status))}</strong><span class="payment-countdown" data-payment-countdown>${expires ? `有效期至 ${expires}` : '请完成付款'}</span></div>
+    <div class="payment-qr-frame"><div id="payment-qr" class="payment-qr" role="img" aria-label="付款二维码">正在生成二维码…</div></div>
+    <p class="payment-hint">请使用${esc(paymentMethodLabel(instructions.method))}扫描二维码。付款后无需跳转，页面会自动检测到账并发放卡密。</p>
+    <div class="payment-network"><span>支付方式</span><strong>${esc(instructions.label)}${instructions.network ? ` · ${esc(instructions.network)}` : ''}</strong></div>
+    <div class="payment-amount-row"><div><small>应付金额</small><strong>${esc(amount)}</strong></div><button class="copy-button" data-action="copy-payment" data-copy="${encodeURIComponent(payment.payableAmount ?? amount)}">复制金额</button></div>
+    ${instructions.network ? `<div class="payment-network"><span>网络</span><strong>${esc(instructions.network)}</strong></div>` : ''}
+    ${address ? `<div class="payment-address-row"><div><small>收款地址</small><code>${esc(address)}</code></div><button class="copy-button" data-action="copy-payment" data-copy="${encodeURIComponent(address)}">复制地址</button></div>` : ''}
+    <div class="payment-order-note"><span>订单号：${esc(order.orderNo)}</span><button data-action="copy-payment" data-copy="${encodeURIComponent(order.orderNo)}">复制</button></div>
+  </section>`;
+}
+
 function orderPanelMarkup(order) {
   const isMock = order.payment.provider === 'mock';
   const canPayMock = isMock && order.status === 'pending_payment';
-  const canOpenCheckout = order.payment.checkoutUrl && order.status === 'pending_payment' && !isMock;
-  const canRetryPaymentSession = !isMock && order.status === 'pending_payment' && !order.payment.checkoutUrl;
+  const canRetryPaymentSession = !isMock && order.status === 'pending_payment' && !order.payment.checkoutUrl && !order.payment.paymentInstructions;
   const canOpenSupport = Boolean(state.publicConfig?.supportUrl) && ['fulfillment_failed', 'payment_expired', 'canceled'].includes(order.status);
   const cards = order.cards?.length
     ? `<div class="card-list">${order.cards.map((card) => `<div class="issued-card"><div><code>${esc(card.code)}</code>${card.password ? `<code>密码：${esc(card.password)}</code>` : ''}${card.note ? `<small>${esc(card.note)}</small>` : ''}</div><button class="copy-button" data-action="copy-card" data-copy="${encodeURIComponent(`${card.code}${card.password ? `\n密码：${card.password}` : ''}`)}">复制</button></div>`).join('')}</div>`
@@ -231,8 +294,8 @@ function orderPanelMarkup(order) {
       <p class="order-no">${esc(order.orderNo)} · ${esc(order.variantName)} · ${order.quantity} 件</p>
       <span class="order-status">${esc(statusLabel(order.status))}</span>
       <div class="total-line"><span>订单金额</span><strong>${money(order.totalPriceFen)}</strong></div>
-      ${order.status === 'pending_payment' ? `<div class="notice">${order.payment.payableAmount ? `应付 ${esc(order.payment.payableAmount)} ${esc(order.payment.tokenId ?? 'USDT')} · ` : ''}订单会在 ${new Date(order.payment.expiresAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} 前有效。</div>` : ''}
-      ${canOpenCheckout ? '<button class="primary-button" data-action="open-payment">打开 USDT 支付页</button>' : ''}
+      ${embeddedPaymentMarkup(order)}
+      ${order.status === 'pending_payment' && !order.payment.paymentInstructions ? `<div class="notice">${order.payment.payableAmount ? `应付 ${esc(paymentAmount(order))} · ` : ''}订单会在 ${order.payment.expiresAt ? new Date(order.payment.expiresAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '有效期内'} 完成付款。</div>` : ''}
       ${canRetryPaymentSession ? '<button class="primary-button" data-action="retry-payment-session">重新创建支付会话</button>' : ''}
       ${canPayMock ? '<button class="primary-button" data-action="complete-mock-payment">模拟付款成功并自动发卡</button>' : ''}
       ${order.status === 'fulfillment_failed' ? `<div class="notice error">${esc(order.failureReason ?? '发卡任务异常，请联系售后。')}</div>` : ''}
@@ -243,14 +306,78 @@ function orderPanelMarkup(order) {
     </article>`;
 }
 
+function stopPaymentTimer() {
+  if (state.paymentTimer) clearInterval(state.paymentTimer);
+  state.paymentTimer = null;
+}
+
+function renderPaymentQr(order) {
+  const target = document.querySelector('#payment-qr');
+  const instructions = order.payment?.paymentInstructions;
+  if (!target || !instructions?.qrContent) return;
+  if (typeof window.qrcode !== 'function') {
+    target.textContent = '二维码组件加载失败，请刷新页面。';
+    return;
+  }
+  try {
+    const qr = window.qrcode(0, 'M');
+    qr.addData(instructions.qrContent, 'Byte');
+    qr.make();
+    target.innerHTML = qr.createSvgTag({
+      scalable: true,
+      cellSize: 5,
+      margin: 14,
+      alt: { text: `${instructions.label} ${instructions.network ?? ''} 付款二维码` },
+      title: { text: '付款二维码' },
+    });
+  } catch {
+    target.textContent = '二维码内容过长或无效，请复制收款地址付款。';
+  }
+}
+
+function startPaymentTimer(order) {
+  stopPaymentTimer();
+  const target = document.querySelector('[data-payment-countdown]');
+  if (!target || !order.payment?.expiresAt) return;
+  const expiresAt = new Date(order.payment.expiresAt).getTime();
+  const serverTime = new Date(order.payment.serverTime ?? '').getTime();
+  const clockOffset = Number.isFinite(serverTime) ? serverTime - Date.now() : 0;
+  const tick = () => {
+    const remaining = expiresAt - (Date.now() + clockOffset);
+    if (remaining <= 0) {
+      target.textContent = '二维码已过期';
+      target.classList.add('expired');
+      stopPaymentTimer();
+      return;
+    }
+    const seconds = Math.floor(remaining / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const rest = String(seconds % 60).padStart(2, '0');
+    target.textContent = `剩余 ${String(minutes).padStart(2, '0')}:${rest}`;
+  };
+  tick();
+  state.paymentTimer = setInterval(tick, 1000);
+}
+
+function setupPaymentView(order) {
+  if (!order.payment?.paymentInstructions || !['pending_payment', 'payment_confirming'].includes(order.status)) {
+    stopPaymentTimer();
+    return;
+  }
+  renderPaymentQr(order);
+  startPaymentTimer(order);
+}
+
 async function openOrder(orderNo, replaceHistory = true) {
   clearInterval(state.orderPoll);
+  stopPaymentTimer();
   const panel = document.querySelector('#order-panel');
   panel.classList.add('open');
   panel.innerHTML = '<article class="order-card"><p>正在读取订单…</p></article>';
   try {
     const order = await api(`/api/orders/${encodeURIComponent(orderNo)}`);
     panel.innerHTML = orderPanelMarkup(order);
+    setupPaymentView(order);
     if (replaceHistory) history.replaceState({}, '', `/orders/${order.orderNo}`);
     if (['pending_payment', 'payment_confirming', 'paid', 'fulfilling'].includes(order.status)) {
       state.orderPoll = setInterval(() => void refreshOrder(order.orderNo), 5000);
@@ -266,12 +393,14 @@ async function refreshOrder(orderNo) {
   try {
     const order = await api(`/api/orders/${encodeURIComponent(orderNo)}`);
     panel.innerHTML = orderPanelMarkup(order);
+    setupPaymentView(order);
     if (['completed', 'payment_expired', 'canceled', 'fulfillment_failed'].includes(order.status)) clearInterval(state.orderPoll);
   } catch { /* Keep the current order view during a transient network failure. */ }
 }
 
 function closeOrder() {
   clearInterval(state.orderPoll);
+  stopPaymentTimer();
   const panel = document.querySelector('#order-panel');
   panel?.classList.remove('open');
   history.replaceState({}, '', '/');
@@ -299,6 +428,7 @@ async function loadOrders(force = false) {
 async function switchTab(tab) {
   if (!['shop', 'orders', 'profile'].includes(tab)) return;
   clearInterval(state.orderPoll);
+  stopPaymentTimer();
   state.activeTab = tab;
   history.replaceState({}, '', '/');
   renderCatalog();
@@ -358,12 +488,8 @@ async function submitCheckout() {
     state.checkoutIdempotencyKey = null;
     state.orders = null;
     renderCatalog();
-    if (order.payment.provider === 'mock') {
-      await openOrder(order.orderNo);
-      return;
-    }
-    showToast('支付订单已创建，正在打开收银台。');
-    openExternalUrl(order.payment.checkoutUrl);
+    showToast('支付订单已创建，请在当前页面扫码付款。');
+    await openOrder(order.orderNo);
   } catch (error) {
     state.checkout = { ...item, message: error.message };
     renderCatalog();
@@ -420,12 +546,6 @@ async function onClick(event) {
     const orderNo = location.pathname.match(/XX\d{14}[A-F0-9]{8}/)?.[0];
     if (orderNo) return refreshOrder(orderNo);
   }
-  if (action === 'open-payment') {
-    const orderNo = location.pathname.match(/XX\d{14}[A-F0-9]{8}/)?.[0];
-    if (!orderNo) return;
-    const order = await api(`/api/orders/${orderNo}`);
-    return openExternalUrl(order.payment.checkoutUrl);
-  }
   if (action === 'complete-mock-payment') {
     const orderNo = location.pathname.match(/XX\d{14}[A-F0-9]{8}/)?.[0];
     if (!orderNo) return;
@@ -438,12 +558,17 @@ async function onClick(event) {
     const orderNo = location.pathname.match(/XX\d{14}[A-F0-9]{8}/)?.[0];
     if (!orderNo) return;
     actionElement.setAttribute('disabled', '');
-    const order = await api(`/api/orders/${orderNo}/payment-session`, { method: 'POST' });
-    if (order.payment.checkoutUrl) openExternalUrl(order.payment.checkoutUrl);
+    await api(`/api/orders/${orderNo}/payment-session`, { method: 'POST' });
+    showToast('付款信息已恢复。');
     return refreshOrder(orderNo);
   }
   if (action === 'open-support') {
     return openExternalUrl(state.publicConfig?.supportUrl);
+  }
+  if (action === 'copy-payment') {
+    const content = decodeURIComponent(actionElement.dataset.copy ?? '');
+    await copyText(content);
+    return showToast('付款信息已复制。');
   }
   if (action === 'copy-card') {
     const content = decodeURIComponent(actionElement.dataset.copy ?? '');

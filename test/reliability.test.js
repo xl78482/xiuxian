@@ -238,6 +238,32 @@ test('updates SKU pricing and rejects external product image URLs', () => {
   }
 });
 
+test('rejects a pending provider session without embedded payment instructions', async () => {
+  const provider = {
+    name: 'external-only',
+    async createPayment(input) {
+      return {
+        provider: 'external-only',
+        providerOrderId: 'provider-external',
+        merchantOrderId: input.merchantOrderId,
+        status: 'pending',
+        checkoutUrl: 'https://payments.example.com/checkout',
+        expiresAt: new Date(Date.now() + 600_000).toISOString(),
+        raw: {},
+      };
+    },
+  };
+  const context = setup(provider);
+  try {
+    await assert.rejects(
+      context.commerce.createOrder(context.admin, { variantId: 'variant', quantity: 1, idempotencyKey: 'external-only' }),
+      (error) => error.code === 'invalid_payment_session' && /内嵌付款信息/.test(error.message),
+    );
+  } finally {
+    context.close();
+  }
+});
+
 test('creates a DujiaoPay order using the documented request contract', async () => {
   const originalFetch = globalThis.fetch;
   let captured;
@@ -278,6 +304,15 @@ test('creates a DujiaoPay order using the documented request contract', async ()
     assert.equal(body.token_id, 'tron-usdt');
     assert.equal(payment.status, 'pending');
     assert.equal(payment.payableAmount, '19.9001');
+    assert.deepEqual(payment.paymentInstructions, {
+      mode: 'qr',
+      method: 'crypto',
+      label: 'USDT',
+      amountUnit: 'USDT',
+      network: 'TRON',
+      qrContent: 'TAddress',
+      address: 'TAddress',
+    });
     const expected = signRequest({
       secret: 'request-secret',
       method: 'POST',

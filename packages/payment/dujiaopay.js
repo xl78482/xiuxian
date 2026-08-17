@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { PaymentProviderError } from './index.js';
+import { PaymentProviderError, normalizePaymentInstructions } from './index.js';
 
 function sha256Hex(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
@@ -62,11 +62,28 @@ export class DujiaoPayProvider {
       cancel_url: input.cancelUrl,
     }, input.merchantOrderId);
     const mapped = this.mapOrder(data);
+    const payAddress = typeof data.pay_address === 'string' ? data.pay_address : null;
+    const chain = typeof data.chain === 'string' ? data.chain : null;
+    const tokenId = typeof data.token_id === 'string' ? data.token_id : null;
+    const checkoutUrl = typeof data.checkout_url === 'string' ? data.checkout_url : null;
+    const tokenSymbol = tokenId ? tokenId.split('-').at(-1).toUpperCase() : '稳定币';
+    const embedded = payAddress && mapped.payableAmount
+      ? normalizePaymentInstructions({
+          mode: 'qr',
+          method: 'crypto',
+          label: tokenSymbol,
+          amountUnit: tokenSymbol,
+          network: chain ? chain.toUpperCase() : null,
+          qrContent: payAddress,
+          address: payAddress,
+        })
+      : null;
     return {
       provider: this.name,
       ...mapped,
-      payAddress: typeof data.pay_address === 'string' ? data.pay_address : null,
-      checkoutUrl: typeof data.checkout_url === 'string' ? data.checkout_url : null,
+      payAddress,
+      checkoutUrl,
+      paymentInstructions: embedded,
       expiresAt: typeof data.expires_at === 'string' ? data.expires_at : null,
       raw: data,
     };

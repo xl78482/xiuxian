@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { many, nowIso, one, parseJson, run, transaction } from './database.js';
 import { randomId } from './crypto.js';
-import { canonicalDecimal, isSameDecimal } from '../payment/index.js';
+import { canonicalDecimal, isSameDecimal, normalizePaymentInstructions } from '../payment/index.js';
 
 export class DomainError extends Error {
   constructor(message, code = 'domain_error', status = 400) {
@@ -40,7 +40,7 @@ const orderWithPayment = `
     pt.status AS payment_status, pt.fiat_amount, pt.fiat_currency,
     pt.payable_amount, pt.chain, pt.token_id, pt.pay_address,
     pt.checkout_url, pt.provider_expires_at, pt.paid_at,
-    pt.transaction_id, pt.provider_payload
+    pt.transaction_id, pt.provider_payload, pt.payment_instructions
   FROM orders o
   JOIN payment_transactions pt ON pt.order_id = o.id
 `;
@@ -57,16 +57,43 @@ function toUser(row) {
     : null;
 }
 
+function legacyCryptoInstructions(row) {
+  if (!row.pay_address || !row.payable_amount || row.provider === 'mock') return null;
+  const token = String(row.token_id ?? 'USDT').toUpperCase();
+  try {
+    return normalizePaymentInstructions({
+      mode: 'qr',
+      method: 'crypto',
+      label: token === 'TRON-USDT' ? 'USDT' : token,
+      amountUnit: token === 'TRON-USDT' ? 'USDT' : token,
+      network: row.chain ? String(row.chain).toUpperCase() : null,
+      qrContent: row.pay_address,
+      address: row.pay_address,
+    });
+  } catch {
+    return null;
+  }
+}
+
 function toPaymentSummary(row) {
+  let paymentInstructions = null;
+  try {
+    paymentInstructions = normalizePaymentInstructions(parseJson(row.payment_instructions, null));
+  } catch {
+    paymentInstructions = null;
+  }
+  paymentInstructions ??= legacyCryptoInstructions(row);
   return {
     provider: row.provider,
     status: row.payment_status,
-    checkoutUrl: row.checkout_url,
+    checkoutUrl: paymentInstructions ? null : row.checkout_url,
     chain: row.chain,
     tokenId: row.token_id,
     payableAmount: row.payable_amount,
     payAddress: row.pay_address,
     expiresAt: row.provider_expires_at ?? row.payment_deadline,
+    serverTime: nowIso(),
+    paymentInstructions,
   };
 }
 
@@ -335,7 +362,7 @@ export class CommerceService {
 
   async ensurePaymentSession(order, userId) {
     if (!order) throw new Error('Order was not created.');
-    if (order.checkout_url || order.payment_status === 'paid' || order.status !== 'pending_payment') {
+    if (order.checkout_url || order.payment_instructions !== '{}' || order.payment_status === 'paid' || order.status !== 'pending_payment') {
       return toOrderSummary(order);
     }
     let session;
@@ -377,6 +404,14 @@ export class CommerceService {
     if (!providerStatuses.includes(session.status)) {
       throw new DomainError('支付渠道返回了无效状态。', 'invalid_payment_session', 502);
     }
+    let paymentInstructions = null;
+    if (session.paymentInstructions) {
+      try {
+        paymentInstructions = normalizePaymentInstructions(session.paymentInstructions);
+      } catch {
+        throw new DomainError('支付渠道返回了无效的内嵌付款信息。', 'invalid_payment_session', 502);
+      }
+    }
     if (session.status === 'paid' && (!session.fiatCurrency || !session.fiatAmount)) {
       try {
         const verified = await this.paymentProvider.getOrder(session.providerOrderId);
@@ -392,8 +427,8 @@ export class CommerceService {
         throw new DomainError('支付订单已完成，但暂时无法核验金额，已停止自动发卡。', 'payment_confirmation_incomplete', 503);
       }
     }
-    if (['awaiting_payment', 'pending'].includes(session.status) && !session.checkoutUrl) {
-      throw new DomainError('支付渠道返回了无效收银台地址。', 'invalid_payment_session', 502);
+    if (['awaiting_payment', 'pending'].includes(session.status) && !paymentInstructions) {
+      throw new DomainError('支付渠道未返回可用的内嵌付款信息。', 'invalid_payment_session', 502);
     }
     if (session.checkoutUrl) {
       let checkoutUrl;
@@ -428,6 +463,7 @@ export class CommerceService {
              payable_amount = COALESCE(?, payable_amount),
              chain = COALESCE(?, chain), token_id = COALESCE(?, token_id),
              pay_address = COALESCE(?, pay_address), checkout_url = COALESCE(checkout_url, ?),
+             payment_instructions = COALESCE(?, payment_instructions),
              provider_expires_at = COALESCE(?, provider_expires_at), provider_payload = ?, updated_at = ?
          WHERE order_id = ?`,
         session.providerOrderId,
@@ -438,6 +474,7 @@ export class CommerceService {
         session.tokenId ?? null,
         session.payAddress ?? null,
         session.checkoutUrl ?? null,
+        paymentInstructions ? JSON.stringify(paymentInstructions) : null,
         expiry,
         JSON.stringify(session.raw ?? {}),
         now,
@@ -1504,6 +1541,15 @@ export function makeMockPaymentProvider(appOrigin) {
         payableAmount: (input.amountFen / 100).toFixed(2),
         payAddress: 'DEVELOPMENT_ONLY',
         checkoutUrl: new URL(`/pay/mock/${encodeURIComponent(input.merchantOrderId)}`, appOrigin).toString(),
+        paymentInstructions: {
+          mode: 'qr',
+          method: 'crypto',
+          label: 'USDT',
+          amountUnit: 'USDT',
+          network: 'TRON（开发环境）',
+          qrContent: `XiuXian development payment ${input.merchantOrderId}`,
+          address: 'DEVELOPMENT_ONLY',
+        },
         expiresAt: addMinutes(15),
         raw: { development_only: true, provider_order_id: providerOrderId },
       };
