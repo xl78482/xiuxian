@@ -1,6 +1,6 @@
 {
   "name": "xiuxian",
-  "version": "1.0.31",
+  "version": "1.0.32",
   "private": true,
   "type": "module",
   "description": "Telegram Mini App automatic digital-card delivery platform",
@@ -12,7 +12,7 @@
     "backup": "node scripts/backup.js",
     "payment:check": "node scripts/check-payment.js",
     "version:check": "node scripts/check-version.js",
-    "test": "node scripts/check-version.js && node --test \"test/*.test.js\""
+    "test": "node scripts/check-version.js && node --test --test-concurrency=1 \"test/*.test.js\""
   },
   "engines": {
     "node": ">=22.5.0"

@@ -472,7 +472,7 @@ function profileView() {
     <div class="native-menu">
       <button data-action="switch-tab" data-tab="orders"><span>${icon.receipt}<b>我的订单</b></span>${icon.chevron}</button>
       ${state.publicConfig?.supportUrl ? `<button data-action="open-support"><span>${icon.support}<b>联系售后</b></span>${icon.chevron}</button>` : ''}
-      <div><span>${icon.shield}<b>当前版本</b></span><small>v${esc(state.publicConfig?.version ?? '1.0.31')}</small></div>
+      <div><span>${icon.shield}<b>当前版本</b></span><small>v${esc(state.publicConfig?.version ?? '1.0.32')}</small></div>
     </div>
   </section>`;
 }
