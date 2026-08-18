@@ -1629,3 +1629,150 @@ html, body, .native-shell, .app-shell {
     box-shadow: 0 0 44px rgba(37,53,110,.09), 0 0 0 1px rgba(255,255,255,.7);
   }
 }
+
+/* =========================================================
+   v1.0.24 Storefront rebuild — 货架式商品墙
+   结构性重构：细公告条 + 搜索 + 双列竖卡。
+   ========================================================= */
+
+/* —— 顶部：细公告条（替代巨型 Banner） —— */
+.promo-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  margin-bottom: 12px;
+  padding: 0 14px;
+  border-radius: 16px;
+  background: var(--lum-grad);
+  color: #fff;
+  box-shadow: 0 8px 20px rgba(79,107,248,.25);
+  overflow: hidden;
+}
+.promo-strip .promo-mark {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border-radius: 10px;
+  background: rgba(255,255,255,.22);
+  font: 800 12px ui-monospace, monospace;
+}
+.promo-strip .promo-copy {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.promo-strip > svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  fill: none;
+  stroke: rgba(255,255,255,.75);
+  stroke-width: 1.8;
+  transform: rotate(90deg);
+}
+
+/* —— 搜索框 —— */
+.catalog-search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 44px;
+  margin: 0 0 12px;
+  padding: 0 14px;
+  border: 1px solid var(--lum-border);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 4px 14px rgba(37,53,110,.05);
+  color: var(--lum-subtle);
+}
+.catalog-search svg { width: 18px; height: 18px; flex: 0 0 18px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.catalog-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: var(--lum-ink);
+  background: transparent;
+  font-size: 13px;
+}
+.catalog-search input::placeholder { color: var(--lum-subtle); }
+.catalog-search input::-webkit-search-cancel-button { opacity: .5; }
+
+/* —— 货架式双列商品墙 —— */
+.shop-view .category-strip { margin: 0 0 4px; padding-bottom: 12px; }
+.shop-view .product-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+/* —— 竖卡 —— */
+.native-shell .product-card.card-stack {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.card-stack .product-open {
+  grid-column: auto;
+  display: block;
+  min-width: 0;
+  padding: 0;
+}
+.card-stack .product-image {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  min-height: 0;
+  height: auto;
+  border-radius: 0;
+  background: var(--lum-bg-deep);
+}
+.card-stack .product-body { padding: 11px 12px 4px; }
+.card-stack .product-meta { font-size: 9px; }
+.card-stack .product-title { margin: 7px 0 4px; font-size: 15px; }
+.card-stack .product-description {
+  min-height: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 10px;
+}
+.card-stack .product-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 12px 12px;
+}
+.card-stack .product-actions .product-price { margin: 0; }
+.card-stack .product-actions .product-price strong { font-size: 17px; }
+.card-stack .product-actions .product-price span { font-size: 9px; }
+.card-stack .buy-button {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: 50%;
+  background: var(--lum-grad);
+  box-shadow: 0 5px 14px rgba(79,107,248,.35);
+}
+.card-stack .buy-button:active { transform: scale(.92); }
+.card-stack .buy-button:disabled { opacity: .4; box-shadow: none; }
+
+/* —— 桌面端：三列 —— */
+@media (min-width: 720px) {
+  .shop-view .product-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  .promo-strip { min-height: 56px; }
+}
+
+/* —— 窄屏细节 —— */
+@media (max-width: 360px) {
+  .card-stack .product-actions .product-price span { display: none; }
+  .shop-view .product-grid { gap: 10px; }
+}

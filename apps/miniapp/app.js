@@ -9,6 +9,7 @@ const state = {
   ordersLoading: false,
   ordersFilter: 'all',
   selectedCategory: 'all',
+  searchQuery: '',
   detailProductId: null,
   selectedVariants: new Map(),
   checkout: null,
@@ -315,21 +316,18 @@ function productCard(product, index = 0, animate = false) {
   const enter = animate ? ' card-enter' : '';
   const delay = animate ? ` style="animation-delay:${Math.min(index * 45, 450)}ms"` : '';
   return `
-    <article class="product-card${enter}"${delay}>
+    <article class="product-card card-stack${enter}"${delay}>
       <button class="product-open" data-action="open-detail" data-product-id="${esc(product.id)}" aria-label="查看 ${esc(product.title)} 详情">
         <img class="product-image" loading="lazy" decoding="async" src="${productImage(product)}" alt="${esc(product.title)}" />
         <div class="product-body">
           <div class="product-meta"><span>${esc(product.category?.name ?? '数字商品')}</span><span>已售 ${selected?.sold ?? 0}</span></div>
           <h3 class="product-title">${esc(product.title)}</h3>
           <p class="product-description">${esc(product.description || '即时交付的数字商品')}</p>
-          <div class="product-price"><strong>${money(selected?.priceFen ?? 0)}</strong><span>${selected?.stock ?? 0} 份可售</span></div>
         </div>
       </button>
       <div class="product-actions">
-        <select class="variant-select" data-product-id="${esc(product.id)}" aria-label="选择 ${esc(product.title)} 规格">
-          ${product.variants.map((variant) => `<option value="${esc(variant.id)}" ${variant.id === selectedId ? 'selected' : ''} ${variant.stock < 1 ? 'disabled' : ''}>${esc(variant.name)}${variant.stock < 1 ? ' · 售罄' : ''}</option>`).join('')}
-        </select>
-        <button class="buy-button" data-action="open-checkout" data-product-id="${esc(product.id)}" title="购买 ${esc(product.title)}" aria-label="购买 ${esc(product.title)}" ${!purchasable ? 'disabled' : ''}>${icon.bag}<span>${purchaseLabel(selected)}</span></button>
+        <div class="product-price"><strong>${money(selected?.priceFen ?? 0)}</strong><span>${selected?.stock ?? 0} 份可售</span></div>
+        <button class="buy-button" data-action="open-checkout" data-product-id="${esc(product.id)}" title="购买 ${esc(product.title)}" aria-label="购买 ${esc(product.title)}" ${!purchasable ? 'disabled' : ''}>${icon.bag}</button>
       </div>
     </article>`;
 }
@@ -380,19 +378,34 @@ function renderTabbar(transition = null) {
   return `<nav class="mini-tabbar" aria-label="主导航"><div class="mini-tabbar-inner"><span class="mini-tabbar-slider" data-tab-slider aria-hidden="true" style="transform:translate3d(${initialIndex * 100}%,0,0)"></span>${tabs.map(([tab, label, glyph]) => `<button class="mini-tab ${state.activeTab === tab ? 'active' : ''}" data-action="switch-tab" data-tab="${tab}"><span class="mini-tab-icon">${glyph}</span><span class="mini-tab-label">${label}</span>${tab === 'orders' ? `<b>${orderCount}</b>` : ''}</button>`).join('')}</div></nav>`;
 }
 
+function shopProducts() {
+  return state.catalog.filter((product) => {
+    if (state.selectedCategory !== 'all' && product.category?.id !== state.selectedCategory) return false;
+    if (state.searchQuery) {
+      const haystack = `${product.title} ${product.description} ${product.category?.name ?? ''}`.toLowerCase();
+      if (!haystack.includes(state.searchQuery)) return false;
+    }
+    return true;
+  });
+}
+
 function shopView(animate = false) {
   const categoryMap = new Map();
   for (const product of state.catalog) if (product.category) categoryMap.set(product.category.id, product.category);
-  const products = state.catalog.filter((product) => state.selectedCategory === 'all' || product.category?.id === state.selectedCategory);
+  const products = shopProducts();
   const pillDelay = (index) => animate ? ` style="animation-delay:${Math.min(30 + index * 40, 400)}ms"` : '';
+  const paymentState = state.publicConfig?.paymentReady
+    ? `${String(state.publicConfig.paymentToken ?? 'USDT').split('-').at(-1).toUpperCase()} · ${String(state.publicConfig.paymentChain ?? 'TRON').toUpperCase()} · 自动发卡`
+    : '支付渠道配置中 · 暂不可下单';
   return `<section class="shop-view">
-    <div class="shop-banner${animate ? ' banner-enter' : ''}"><div><span>INSTANT DELIVERY</span><h2>今天想补充什么？</h2><p>${state.publicConfig?.paymentReady ? `${String(state.publicConfig.paymentToken ?? 'USDT').split('-').at(-1).toUpperCase()} · ${String(state.publicConfig.paymentChain ?? 'TRON').toUpperCase()} · 自动发卡` : '支付渠道配置中 · 暂不可下单'}</p></div><div class="banner-mark">XX</div></div>
+    <div class="promo-strip${animate ? ' banner-enter' : ''}"><span class="promo-mark">XX</span><span class="promo-copy">${paymentState}</span>${icon.chevron}</div>
+    <div class="catalog-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input data-search-input type="search" placeholder="搜索商品名称或分类…" value="${esc(state.searchQuery)}" aria-label="搜索商品" /></div>
     <div class="category-strip" role="tablist" aria-label="商品分类">
       <button class="category-pill ${state.selectedCategory === 'all' ? 'active' : ''}${animate ? ' pill-enter' : ''}" data-action="filter" data-category="all"${pillDelay(0)}><span class="category-glyph">✦</span><b>全部</b><small>${state.catalog.length}</small></button>
       ${[...categoryMap.values()].map((category, index) => `<button class="category-pill ${state.selectedCategory === category.id ? 'active' : ''}${animate ? ' pill-enter' : ''}" data-action="filter" data-category="${esc(category.id)}"${pillDelay(index + 1)}><span class="category-glyph">${String(index + 1).padStart(2, '0')}</span><b>${esc(category.name)}</b><small>${state.catalog.filter((product) => product.category?.id === category.id).length}</small></button>`).join('')}
     </div>
-    <div class="native-section-title"><div><span class="section-eyebrow">COLLECTION</span><h2>精选商品</h2></div><span>${products.length} 件</span></div>
-    <div class="product-grid">${products.length ? products.map((product, index) => productCard(product, index, animate)).join('') : `<div class="native-empty compact">${icon.package}<h2>没有匹配商品</h2><p>切换分类看看其他商品</p></div>`}</div>
+    <div class="native-section-title"><div><span class="section-eyebrow">COLLECTION</span><h2>精选商品</h2></div><span data-product-count>${products.length} 件</span></div>
+    <div class="product-grid">${products.length ? products.map((product, index) => productCard(product, index, animate)).join('') : `<div class="native-empty compact">${icon.package}<h2>没有匹配商品</h2><p>换个关键词或分类看看</p></div>`}</div>
   </section>`;
 }
 
@@ -1222,6 +1235,20 @@ document.addEventListener('click', (event) => {
   });
 });
 document.addEventListener('change', onChange);
+document.addEventListener('input', (event) => {
+  const search = event.target.closest('[data-search-input]');
+  if (!search) return;
+  state.searchQuery = search.value.trim().toLowerCase();
+  // 只更新商品网格与计数，避免整页重建导致输入框失焦
+  const grid = document.querySelector('.product-grid');
+  if (!grid) return;
+  const products = shopProducts();
+  grid.innerHTML = products.length
+    ? products.map((product, index) => productCard(product, index)).join('')
+    : `<div class="native-empty compact">${icon.package}<h2>没有匹配商品</h2><p>换个关键词或分类看看</p></div>`;
+  const count = document.querySelector('[data-product-count]');
+  if (count) count.textContent = `${products.length} 件`;
+});
 window.addEventListener('popstate', () => {
   const detailProductId = routeProductSlug();
   state.detailProductId = detailProductId;
