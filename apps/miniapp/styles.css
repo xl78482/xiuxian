@@ -326,6 +326,22 @@ body { overscroll-behavior-y: none; }
 .native-order-side b { color: #1c2430; font-size: 13px; }
 .native-order-side span { color: #3390ec; font-size: 10px; }
 .native-order-side svg { width: 14px; height: 14px; fill: none; stroke: #a5abb4; stroke-width: 1.8; }
+/* 订单页状态分类筛选 */
+.order-filter { display: flex; gap: 8px; overflow-x: auto; margin: 2px 0 14px; padding: 1px 1px 3px; scrollbar-width: none; }
+.order-filter::-webkit-scrollbar { display: none; }
+.order-filter-pill { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; min-height: 34px; padding: 0 13px; border: 1px solid #e7eaf1; border-radius: 999px; color: #7d8799; background: #fff; outline: 0; transition: color .18s ease, background .18s ease, border-color .18s ease, transform .18s ease; }
+.order-filter-pill b { font-size: 12px; font-weight: 800; }
+.order-filter-pill small { color: #a4acb9; font-size: 10px; font-weight: 600; }
+.order-filter-pill.active { color: #fff; border-color: var(--mini-blue); background: var(--mini-blue); box-shadow: 0 5px 12px rgba(83, 109, 243, .2); }
+.order-filter-pill.active small { color: #e4e9ff; }
+.order-filter-pill:active { transform: scale(.96); }
+/* 订单状态彩色标签 */
+.native-order-side .order-status-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 9px; font-weight: 700; line-height: 1.5; }
+.native-order-side .order-status-chip.info { color: #2f6fe0; background: #eaf2ff; }
+.native-order-side .order-status-chip.warn { color: #b9761d; background: #fff3e0; }
+.native-order-side .order-status-chip.ok { color: #2f9e75; background: #e8f8f0; }
+.native-order-side .order-status-chip.danger { color: #d2533f; background: #ffefec; }
+.native-order-side .order-status-chip.muted { color: #8b93a1; background: #eef0f3; }
 .profile-card { display: flex; align-items: center; gap: 14px; padding: 18px; border-radius: 15px; background: #fff; }
 .profile-avatar { position: relative; width: 56px; height: 56px; display: grid; place-items: center; flex: 0 0 56px; overflow: hidden; border-radius: 50%; color: #fff; background: #3390ec; font-size: 22px; font-weight: 800; }
 .profile-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: cover; }
@@ -667,14 +683,15 @@ html, body { background: var(--mini-bg); }
   position: relative;
   overflow: hidden;
   min-height: 1px;
-  transition: height .28s ease;
+  transition: height .34s cubic-bezier(.32, .72, 0, 1);
+  will-change: height;
 }
 .mini-tab-track {
   display: flex;
   align-items: flex-start;
   width: 300%;
   transform: translate3d(0, 0, 0);
-  transition: transform .34s cubic-bezier(.22, .75, .25, 1);
+  transition: transform .36s cubic-bezier(.32, .72, 0, 1);
   will-change: transform;
 }
 .mini-tab-panel {
@@ -701,7 +718,7 @@ html, body { background: var(--mini-bg); }
   background: #eef1ff;
   box-shadow: 0 6px 14px rgba(83, 109, 243, .1);
   transform: translate3d(0, 0, 0);
-  transition: transform .34s cubic-bezier(.22, .75, .25, 1);
+  transition: transform .36s cubic-bezier(.32, .72, 0, 1);
   will-change: transform;
 }
 .mini-tabbar-inner .mini-tab,
@@ -709,8 +726,256 @@ html, body { background: var(--mini-bg); }
   z-index: 1;
   background: transparent;
 }
+/* 图标/文字过渡，提升切换手感 */
+.mini-tab .mini-tab-icon {
+  transition: transform .3s cubic-bezier(.32, .72, 0, 1), color .2s ease, background .2s ease;
+}
+.mini-tab.active .mini-tab-icon {
+  transform: translateY(-1px) scale(1.08);
+}
+.mini-tab-label {
+  transition: color .2s ease;
+}
 @media (prefers-reduced-motion: reduce) {
   .mini-tab-viewport { transition: none; }
   .mini-tab-track,
-  .mini-tabbar-slider { transition: none; }
+  .mini-tabbar-slider,
+  .mini-tab .mini-tab-icon { transition: none; }
+  .mini-tab.active .mini-tab-icon { transform: none; }
+}
+
+/* =========================================================
+   v1.0.19 Native iOS-style layer
+   原 生 苹 果 风 格 / Telegram 主题自适应。
+   颜色由 JS(themeParams) 注入 --ios-* 变量，此处提供浅色默认值兜底。
+   ========================================================= */
+:root {
+  --ios-bg: #f2f2f7;
+  --ios-bg-raise: #ffffff;
+  --ios-card: #ffffff;
+  --ios-field: rgba(120,120,128,0.12);
+  --ios-ink: #1c1c1e;
+  --ios-muted: #8e8e93;
+  --ios-subtle: rgba(60,60,67,0.6);
+  --ios-accent: #0a84ff;
+  --ios-accent-text: #0a84ff;
+  --ios-link: #0a84ff;
+  --ios-separator: rgba(60,60,67,0.22);
+  --ios-accent-soft: rgba(10,132,255,0.12);
+  --ios-accent-faint: rgba(10,132,255,0.06);
+  --ios-bar: rgba(255,255,255,0.8);
+  --ios-danger: #ff3b30;
+  --ios-fill: rgba(120,120,128,0.18);
+}
+
+/* —— 页面背景与文字 —— */
+html, body, .native-shell, .app-shell { background: var(--ios-bg); color: var(--ios-ink); }
+
+/* —— 导航栏：毛玻璃 + hairline —— */
+.mini-header {
+  background: var(--ios-bar);
+  -webkit-backdrop-filter: saturate(180%) blur(24px);
+  backdrop-filter: saturate(180%) blur(24px);
+  border-bottom: 0.5px solid var(--ios-separator);
+  box-shadow: none;
+}
+.mini-header h1 { color: var(--ios-ink); }
+.mini-header p { color: var(--ios-subtle); }
+.mini-logo { background: linear-gradient(145deg, #0a84ff, #0066cc); }
+.mini-icon-button { background: transparent; }
+.mini-icon-button svg { stroke: var(--ios-accent); }
+
+/* —— 商城 banner：iOS Today 卡片 —— */
+.shop-banner { border-radius: 18px; background: linear-gradient(140deg, #0a84ff 0%, #0066cc 100%); box-shadow: 0 12px 26px rgba(0,0,0,.16); }
+.shop-banner span { color: rgba(255,255,255,.82); }
+.shop-banner p { color: rgba(255,255,255,.9); }
+.banner-mark { color: #0a84ff; border-radius: 18px; box-shadow: 0 10px 22px rgba(0,60,120,.25); }
+
+/* —— 分类 chip（iOS 分段/标签风格）—— */
+.category-strip { margin-top: 16px; }
+.category-pill,
+.order-filter-pill {
+  border: 0;
+  border-radius: 12px;
+  background: var(--ios-card);
+  box-shadow: inset 0 0 0 1px transparent, inset 0 0 0 0.5px var(--ios-separator);
+  color: var(--ios-subtle);
+}
+.category-glyph { color: var(--ios-muted); background: var(--ios-field); }
+.category-pill b,
+.order-filter-pill b { color: var(--ios-ink); }
+.category-pill small,
+.order-filter-pill small { color: var(--ios-muted); }
+.category-pill.active,
+.order-filter-pill.active {
+  color: var(--ios-accent-text);
+  background: var(--ios-accent-faint);
+  box-shadow: inset 0 0 0 1.5px var(--ios-accent);
+}
+.category-pill.active b,
+.order-filter-pill.active b { color: var(--ios-accent-text); }
+.category-pill.active small,
+.order-filter-pill.active small { color: var(--ios-accent); opacity: .75; }
+.category-pill.active .category-glyph { color: #fff; background: var(--ios-accent); }
+.order-filter-pill.active small { color: var(--ios-accent); opacity: .75; }
+.order-filter-pill.active { box-shadow: inset 0 0 0 1.5px var(--ios-accent); }
+
+/* —— 商品卡片 —— */
+.native-shell .product-card {
+  border: 0;
+  border-radius: 16px;
+  background: var(--ios-card);
+  box-shadow: 0 1px 2px rgba(0,0,0,.04), inset 0 0 0 0.5px rgba(0,0,0,.02);
+}
+.native-shell .product-title { color: var(--ios-ink); }
+.native-shell .product-description { color: var(--ios-muted); }
+.native-shell .product-meta { color: var(--ios-muted); }
+.native-shell .product-price strong { color: var(--ios-accent); }
+.native-shell .product-price span { color: var(--ios-muted); }
+.native-shell .variant-select {
+  border: 0;
+  border-radius: 9px;
+  background: var(--ios-field);
+  color: var(--ios-ink);
+}
+.native-section-title h2 { color: var(--ios-ink); }
+.section-eyebrow { color: var(--ios-accent); }
+
+/* —— 底部导航：毛玻璃贴底 + hairline，iOS 图标变色交替 —— */
+.mini-tabbar {
+  right: 0; left: 0; bottom: 0;
+  margin: 0;
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--ios-bar);
+  -webkit-backdrop-filter: saturate(180%) blur(24px);
+  backdrop-filter: saturate(180%) blur(24px);
+  border-top: 0.5px solid var(--ios-separator);
+  box-shadow: none;
+}
+.mini-tabbar-inner {
+  min-height: calc(46px + env(safe-area-inset-bottom));
+  padding: 5px;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.mini-tabbar-slider {
+  top: 5px; bottom: 5px; left: 5px;
+  width: calc((100% - 10px) / 3);
+  border-radius: 12px;
+  background: var(--ios-accent-soft);
+  box-shadow: none;
+  transition: transform .34s cubic-bezier(.32,.72,0,1);
+}
+.mini-tab { border-radius: 12px; color: var(--ios-muted); }
+.mini-tab.active { color: var(--ios-accent-text); background: transparent; }
+.mini-tab .mini-tab-icon {
+  width: 30px; height: 26px;
+  border-radius: 8px;
+  background: transparent;
+  transition: transform .3s cubic-bezier(.32,.72,0,1), color .2s ease, background .2s ease;
+}
+.mini-tab.active .mini-tab-icon {
+  color: var(--ios-accent-text);
+  background: transparent;
+  box-shadow: none;
+  transform: translateY(-1px) scale(1.1);
+}
+.mini-tab.active .mini-tab-label { color: var(--ios-accent-text); font-weight: 700; }
+.mini-tab-label { color: var(--ios-muted); }
+.mini-tab b { color: var(--ios-accent-text); background: transparent; }
+
+/* —— 个人中心 —— */
+.profile-capsule {
+  border: 0;
+  border-radius: 18px;
+  background: var(--ios-card);
+  box-shadow: none;
+}
+.profile-avatar { border-radius: 50%; background: linear-gradient(145deg, #0a84ff, #0066cc); }
+.profile-capsule h2 { color: var(--ios-ink); }
+.profile-username { color: var(--ios-subtle); }
+.profile-id { color: var(--ios-muted); }
+.capsule-balance { border-top: 0.8px solid var(--ios-separator); }
+.balance-label { color: var(--ios-muted); }
+.balance-amount { color: var(--ios-ink); }
+.native-menu {
+  border: 0;
+  border-radius: 18px;
+  background: var(--ios-card);
+  box-shadow: none;
+  overflow: hidden;
+}
+.native-menu > :not(:last-child) { border-bottom: 0.8px solid var(--ios-separator); }
+.native-menu span svg { color: var(--ios-accent); background: transparent; }
+.native-menu b { color: var(--ios-ink); }
+
+/* —— 按钮：iOS 主按钮 —— */
+.primary-button,
+.buy-button,
+.recharge-submit,
+.balance-recharge {
+  border-radius: 12px;
+  background: var(--ios-accent);
+  box-shadow: none;
+}
+.primary-button:active,
+.buy-button:active,
+.recharge-submit:active,
+.balance-recharge:active { transform: scale(.97); opacity: .9; }
+
+/* —— 输入框 —— */
+.recharge-input {
+  border: 0;
+  border-radius: 12px;
+  background: var(--ios-field);
+  color: var(--ios-ink);
+}
+.recharge-input:focus { box-shadow: 0 0 0 3px var(--ios-accent-soft), inset 0 0 0 1.5px var(--ios-accent); }
+.quantity-control, .payment-choice { border-radius: 12px; }
+
+/* —— 订单列表 —— */
+.native-order {
+  border-radius: 14px;
+  background: var(--ios-card);
+  color: var(--ios-ink);
+  box-shadow: rgba(0,0,0,.03) 0 0 0 0.5px, rgba(0,0,0,.03) 0 1px 2px;
+}
+.native-order-main strong { color: var(--ios-ink); }
+.native-order-main span { color: var(--ios-subtle); }
+.native-order-main small { color: var(--ios-muted); }
+.native-order-side b { color: var(--ios-ink); }
+.native-order-side svg { stroke: var(--ios-muted); }
+
+/* —— 空态 / 加载 —— */
+.native-empty, .native-loading { color: var(--ios-muted); }
+.native-empty h2 { color: var(--ios-subtle); }
+.native-empty button { border-color: var(--ios-accent); color: var(--ios-accent); }
+
+/* —— 订单面板 & 购物抽屉：iOS sheet —— */
+.order-panel { background: var(--ios-bg); }
+.order-card { border: 0; border-radius: 18px; background: var(--ios-card); color: var(--ios-ink); }
+.order-card h2 { color: var(--ios-ink); }
+.drawer { border-radius: 20px 20px 0 0; background: var(--ios-bg-raise); }
+.drawer-head h2 { color: var(--ios-ink); }
+.drawer .notice, .order-card .notice { border-radius: 12px; }
+
+/* —— 支付/充值 —— */
+.recharge-card { border: 0; border-radius: 18px; background: var(--ios-card); }
+.recharge-card h3 { color: var(--ios-ink); }
+.recharge-tip { color: var(--ios-subtle); }
+.balance-history-title h3 { color: var(--ios-ink); }
+.payment-network, .payment-amount-row, .payment-address-row { border-radius: 12px; background: var(--ios-field); }
+.payment-network span, .payment-amount-row small { color: var(--ios-muted); }
+
+/* —— 商品详情 —— */
+.detail-intro h1 { color: var(--ios-ink); }
+.detail-intro p { color: var(--ios-muted); }
+.detail-section-title h2, .detail-copy p { color: var(--ios-ink); }
+.detail-copy p { color: var(--ios-subtle); }
+
+/* 深色主题下的微调：提升可读性与边界 */
+@media (prefers-color-scheme: dark) {
+  .native-shell .product-card,
+  .native-order { box-shadow: 0 1px 2px rgba(0,0,0,.4), inset 0 0 0 0.5px rgba(255,255,255,.06); }
 }

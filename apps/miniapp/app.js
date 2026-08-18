@@ -7,6 +7,7 @@ const state = {
   tabTransition: null,
   orders: null,
   ordersLoading: false,
+  ordersFilter: 'all',
   selectedCategory: 'all',
   detailProductId: null,
   selectedVariants: new Map(),
@@ -34,7 +35,7 @@ class ApiError extends Error {
 
 const icon = {
   bag: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8h12l1 12H5L6 8Z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>',
-  receipt: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3h16v18l-3-2-3 2-3-2-3 2-3-2V3Z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
+  receipt: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3.5" width="18" height="17" rx="4"/><path d="M8 9.3h8M8 12.6h6"/><circle cx="16.6" cy="16.5" r="3.2"/><path d="m15.4 16.5 1 1 1.7-1.8"/></svg>',
   shield: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 20 6v5c0 5-3.4 8.8-8 10-4.6-1.2-8-5-8-10V6l8-3Z"/><path d="m9 12 2 2 4-4"/></svg>',
   arrow: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
   close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>',
@@ -60,6 +61,26 @@ function esc(value) {
     .replaceAll("'", '&#039;');
 }
 
+// 将 #RRGGBB 转 rgba，用于主色派生浅填充 / 半透明毛玻璃底色
+function hexToRgba(hex, alpha = 1) {
+  if (typeof hex !== 'string') return `rgba(0,0,0,${alpha})`;
+  let value = hex.trim();
+  if (value.startsWith('#')) value = value.slice(1);
+  let r = 0; let g = 0; let b = 0;
+  if (value.length === 3) {
+    r = parseInt(value[0] + value[0], 16);
+    g = parseInt(value[1] + value[1], 16);
+    b = parseInt(value[2] + value[2], 16);
+  } else if (value.length === 6 && /^[0-9a-fA-F]{6}$/.test(value)) {
+    r = parseInt(value.slice(0, 2), 16);
+    g = parseInt(value.slice(2, 4), 16);
+    b = parseInt(value.slice(4, 6), 16);
+  } else {
+    return `rgba(0,0,0,${alpha})`;
+  }
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
 function money(fen) {
   return `¥${(Number(fen) / 100).toFixed(2)}`;
 }
@@ -78,13 +99,70 @@ function statusLabel(status) {
   }[status] ?? status;
 }
 
+// 订单状态分组（用于订单页顶部筛选）
+const ORDER_GROUPS = [
+  { key: 'all', label: '全部' },
+  { key: 'pending', label: '待支付', statuses: ['pending_payment'] },
+  { key: 'processing', label: '进行中', statuses: ['payment_confirming', 'paid', 'fulfilling', 'fulfillment_failed'] },
+  { key: 'completed', label: '已完成', statuses: ['completed'] },
+  { key: 'closed', label: '已关闭', statuses: ['payment_expired', 'canceled', 'refunded'] },
+];
+
+// 订单状态在列表中的配色（区分可读性）
+const STATUS_TONE = {
+  pending_payment: 'warn',
+  payment_confirming: 'info',
+  paid: 'info',
+  fulfilling: 'info',
+  completed: 'ok',
+  payment_expired: 'muted',
+  canceled: 'muted',
+  fulfillment_failed: 'danger',
+  refunded: 'danger',
+};
+
+function filterOrders(statuses) {
+  if (!statuses || statuses === 'all') return state.orders;
+  const allowed = new Set(statuses);
+  return state.orders.filter((order) => allowed.has(order.status));
+}
+
+function ordersGroupCount(group) {
+  if (!state.orders) return 0;
+  return filterOrders(group.statuses).length;
+}
+
 function setTelegramTheme() {
   const webApp = window.Telegram?.WebApp;
   if (!webApp) return;
   webApp.ready();
   webApp.expand();
-  webApp.setHeaderColor?.('#f3f4f6');
-  webApp.setBackgroundColor?.('#f3f4f6');
+  const theme = webApp.themeParams ?? {};
+  // iOS 分组列表风格：secondary_bg 作页面底色，bg 作卡片白
+  const bg = theme.secondary_bg_color || theme.bg_color || '#f2f2f7';
+  const card = theme.bg_color || '#ffffff';
+  const field = theme.field_bg_color || theme.input_field_color || 'rgba(120,120,128,0.12)';
+  const accent = theme.accent_text_color || theme.button_color || '#0a84ff';
+  const sr = document.documentElement.style;
+  sr.setProperty('--ios-bg', bg);
+  sr.setProperty('--ios-bg-raise', theme.bg_color || '#ffffff');
+  sr.setProperty('--ios-card', card);
+  sr.setProperty('--ios-field', field);
+  sr.setProperty('--ios-ink', theme.text_color || '#1c1c1e');
+  sr.setProperty('--ios-muted', theme.hint_color || '#8e8e93');
+  sr.setProperty('--ios-subtle', theme.subtitle_text_color || theme.hint_color || 'rgba(60,60,67,0.6)');
+  sr.setProperty('--ios-accent', accent);
+  sr.setProperty('--ios-accent-text', theme.accent_text_color || accent);
+  sr.setProperty('--ios-link', theme.link_color || accent);
+  sr.setProperty('--ios-separator', theme.section_separator_color || theme.separator_color || 'rgba(60,60,67,0.22)');
+  sr.setProperty('--ios-accent-soft', hexToRgba(accent, 0.12));
+  sr.setProperty('--ios-accent-faint', hexToRgba(accent, 0.06));
+  sr.setProperty('--ios-bar', hexToRgba(card, 0.8));
+  sr.setProperty('--ios-danger', theme.destructive_text_color || '#ff3b30');
+  webApp.setHeaderColor?.(theme.secondary_bg_color || bg);
+  webApp.setBackgroundColor?.(theme.secondary_bg_color || bg);
+  const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+  if (metaThemeColor) metaThemeColor.setAttribute('content', theme.secondary_bg_color || bg);
 }
 
 async function requestLoginSession() {
@@ -271,10 +349,22 @@ function shopView() {
   </section>`;
 }
 
+function orderFilterStrip() {
+  return `<div class="order-filter" role="tablist" aria-label="订单分类">${ORDER_GROUPS.map((group) => `<button class="order-filter-pill ${state.ordersFilter === group.key ? 'active' : ''}" data-action="order-filter" data-filter="${group.key}"><b>${group.label}</b><small>${ordersGroupCount(group)}</small></button>`).join('')}</div>`;
+}
+
 function ordersView() {
   if (state.ordersLoading) return '<div class="native-loading"><span></span><p>正在加载订单</p></div>';
   if (!state.orders?.length) return `<section class="native-empty">${icon.package}<h2>还没有订单</h2><p>选购数字商品后，订单会显示在这里</p><button data-action="switch-tab" data-tab="shop">去逛逛</button></section>`;
-  return `<section class="orders-view"><div class="native-list">${state.orders.map((order) => `<button class="native-order" data-action="view-order" data-order-no="${esc(order.orderNo)}"><div class="native-order-icon">${icon.receipt}</div><div class="native-order-main"><strong>${esc(order.productTitle)}</strong><span>${esc(order.variantName)} · ${new Date(order.createdAt).toLocaleDateString('zh-CN')}</span><small>${esc(order.orderNo)}</small></div><div class="native-order-side"><b>${money(order.totalPriceFen)}</b><span>${esc(statusLabel(order.status))}</span>${icon.chevron}</div></button>`).join('')}</div></section>`;
+  const group = ORDER_GROUPS.find((g) => g.key === state.ordersFilter) ?? ORDER_GROUPS[0];
+  const list = filterOrders(group.statuses);
+  const body = list.length
+    ? `<div class="native-list">${list.map((order) => {
+        const tone = STATUS_TONE[order.status] ?? 'muted';
+        return `<button class="native-order" data-action="view-order" data-order-no="${esc(order.orderNo)}"><div class="native-order-icon">${icon.receipt}</div><div class="native-order-main"><strong>${esc(order.productTitle)}</strong><span>${esc(order.variantName)} · ${new Date(order.createdAt).toLocaleDateString('zh-CN')}</span><small>${esc(order.orderNo)}</small></div><div class="native-order-side"><b>${money(order.totalPriceFen)}</b><span class="order-status-chip ${tone}">${esc(statusLabel(order.status))}</span>${icon.chevron}</div></button>`;
+      }).join('')}</div>`
+    : `<div class="native-empty compact">${icon.package}<h2>该分类下暂无订单</h2><p>“${esc(group.label)}”暂无匹配的订单记录，可切换到其他分类查看</p></div>`;
+  return `<section class="orders-view">${orderFilterStrip()}${body}</section>`;
 }
 
 function profileView() {
@@ -297,7 +387,7 @@ function profileView() {
     <div class="native-menu">
       <button data-action="switch-tab" data-tab="orders"><span>${icon.receipt}<b>我的订单</b></span>${icon.chevron}</button>
       ${state.publicConfig?.supportUrl ? `<button data-action="open-support"><span>${icon.support}<b>联系售后</b></span>${icon.chevron}</button>` : ''}
-      <div><span>${icon.shield}<b>当前版本</b></span><small>v${esc(state.publicConfig?.version ?? '1.0.8')}</small></div>
+      <div><span>${icon.shield}<b>当前版本</b></span><small>v${esc(state.publicConfig?.version ?? '1.0.19')}</small></div>
     </div>
   </section>`;
 }
@@ -361,13 +451,19 @@ function addressOf(instructions) {
   return instructions?.address ?? '';
 }
 
-function syncTabViewportHeight() {
+function syncTabViewportHeight(animate = true) {
   const viewport = document.querySelector('.mini-tab-viewport');
   const activePanel = viewport?.querySelector(`[data-tab-panel="${state.activeTab}"]`);
   if (!viewport || !activePanel) return;
-  const update = () => { viewport.style.height = `${activePanel.scrollHeight}px`; };
-  update();
-  requestAnimationFrame(update);
+  if (!animate) {
+    viewport.style.transition = 'none';
+    viewport.style.height = `${activePanel.scrollHeight}px`;
+    void viewport.offsetWidth;
+    viewport.style.transition = '';
+    return;
+  }
+  viewport.style.height = `${activePanel.scrollHeight}px`;
+  requestAnimationFrame(() => { viewport.style.height = `${activePanel.scrollHeight}px`; });
 }
 
 function refreshTabPanel(tab) {
@@ -390,9 +486,18 @@ function playTabTransition(transition) {
   const slider = document.querySelector('[data-tab-slider]');
   if (!track || !slider) return;
   const activeIndex = tabIndex(state.activeTab);
+  const targetTrack = `translate3d(${activeIndex * -33.333333}%, 0, 0)`;
+  const targetSlider = `translate3d(${activeIndex * 100}%, 0, 0)`;
+  // 强制 reflow 提交初始位置（HTML 已渲染为旧位置），随后同步改动目标值，
+  // 无需依赖 rAF 也能触发 CSS transition，后台/省电场景下更稳。
+  void track.offsetWidth;
+  void slider.offsetWidth;
+  track.style.transform = targetTrack;
+  slider.style.transform = targetSlider;
+  // 兜底：个别 WebView 需要下一帧才应用，用 rAF 再强制一次（幂等，不影响已有过渡）。
   requestAnimationFrame(() => {
-    track.style.transform = `translate3d(${activeIndex * -33.333333}%, 0, 0)`;
-    slider.style.transform = `translate3d(${activeIndex * 100}%, 0, 0)`;
+    track.style.transform = targetTrack;
+    slider.style.transform = targetSlider;
   });
 }
 
@@ -405,7 +510,14 @@ function renderCatalog() {
   if (detail) content = productDetailView(detail);
   else if (inRecharge) content = rechargeView();
   else content = renderMainViews(transition);
+  const prevHeight = document.querySelector('.mini-tab-viewport')?.style.height ?? '';
   app.innerHTML = `<div class="app-shell native-shell ${detail ? 'detail-shell' : ''}">${renderHeader()}<main class="mini-content">${content}</main>${renderDrawer()}<section class="order-panel" id="order-panel"></section>${detail || inRecharge ? '' : renderTabbar(transition)}<div class="toast" id="toast" role="status"></div></div>`;
+  const viewport = document.querySelector('.mini-tab-viewport');
+  // 以旧高度作为过渡起点，让切换时视口高度平滑跟随位移，避免瞬跳
+  if (viewport && prevHeight) {
+    viewport.style.height = prevHeight;
+    void viewport.offsetHeight; // 提交旧高度作为过渡起点
+  }
   syncTabViewportHeight();
   playTabTransition(transition);
 }
@@ -844,6 +956,11 @@ async function onClick(event) {
   if (action === 'filter') {
     state.selectedCategory = actionElement.dataset.category;
     renderCatalog();
+    return;
+  }
+  if (action === 'order-filter') {
+    state.ordersFilter = actionElement.dataset.filter;
+    refreshTabPanel('orders');
     return;
   }
   if (action === 'open-detail') {
