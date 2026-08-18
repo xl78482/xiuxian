@@ -205,6 +205,25 @@ function setTelegramTheme() {
   if (metaThemeColor) metaThemeColor.setAttribute('content', '#f3f5fb');
 }
 
+// v1.0.27 全屏模式：Telegram 官方 requestFullscreen API。
+// 要求：BotFather 已为该小程序启用 Fullscreen；较新客户端；
+// 必须由用户手势触发（官方限制），故在首次点击时请求。
+function setupFullscreen() {
+  const webApp = window.Telegram?.WebApp;
+  if (!webApp || typeof webApp.requestFullscreen !== 'function') return; // 旧客户端/网页版：保持 expand 现状
+  const tryEnterFullscreen = () => {
+    document.removeEventListener('click', tryEnterFullscreen);
+    try {
+      if (!webApp.isFullscreen) {
+        const result = webApp.requestFullscreen();
+        // 部分客户端返回 Promise，部分返回布尔值
+        if (result && typeof result.catch === 'function') result.catch(() => { /* 用户取消或环境不允许 */ });
+      }
+    } catch { /* 忽略全屏失败，保持当前状态 */ }
+  };
+  document.addEventListener('click', tryEnterFullscreen, { once: true });
+}
+
 async function requestLoginSession() {
   const telegram = window.Telegram?.WebApp;
   const initData = typeof telegram?.initData === 'string' ? telegram.initData.trim() : '';
@@ -1185,6 +1204,7 @@ async function initialize() {
   try {
     clearBuyerSession();
     setTelegramTheme();
+    setupFullscreen();
     await refreshBuyerSession();
     [state.publicConfig, state.catalog] = await Promise.all([
       api('/api/public-config'),
