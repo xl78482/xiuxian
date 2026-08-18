@@ -1776,3 +1776,67 @@ html, body, .native-shell, .app-shell {
   .card-stack .product-actions .product-price span { display: none; }
   .shop-view .product-grid { gap: 10px; }
 }
+
+/* =========================================================
+   v1.0.25 Homepage refine — 胶囊分类 + 紧凑卡片
+   移除搜索框；分类改为单行胶囊；双列卡片压矮。
+   ========================================================= */
+
+/* —— 分类：胶囊标签 —— */
+.shop-view .category-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  margin: 0;
+  padding: 2px 2px 14px;
+  scrollbar-width: none;
+}
+.shop-view .category-strip::-webkit-scrollbar { display: none; }
+.category-capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 0 15px;
+  border: 1px solid var(--lum-border);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--lum-muted);
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 3px 10px rgba(37,53,110,.05);
+  transition: transform .15s ease, background .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+.category-capsule:active { transform: scale(.95); }
+.category-capsule small {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--lum-subtle);
+  line-height: 1;
+}
+.category-capsule.active {
+  border-color: transparent;
+  background: var(--lum-grad);
+  color: #fff;
+  box-shadow: 0 5px 14px rgba(79,107,248,.3);
+}
+.category-capsule.active small { color: rgba(255,255,255,.9); }
+
+/* —— 双列卡片：压矮 —— */
+.card-stack .product-image { aspect-ratio: 16 / 10; }
+.card-stack .product-body { padding: 9px 11px 2px; }
+.card-stack .product-meta { font-size: 9px; }
+.card-stack .product-title { margin: 6px 0 3px; font-size: 14px; }
+.card-stack .product-description {
+  -webkit-line-clamp: 1;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.card-stack .product-actions { padding: 4px 11px 10px; }
+.card-stack .product-actions .product-price strong { font-size: 16px; }
+.card-stack .buy-button {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+}
