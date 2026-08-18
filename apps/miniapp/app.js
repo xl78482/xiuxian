@@ -198,10 +198,11 @@ function setTelegramTheme() {
   sr.setProperty('--ios-accent-faint', hexToRgba(accent, 0.06));
   sr.setProperty('--ios-bar', hexToRgba(card, 0.8));
   sr.setProperty('--ios-danger', theme.destructive_text_color || '#ff3b30');
-  webApp.setHeaderColor?.(theme.secondary_bg_color || bg);
-  webApp.setBackgroundColor?.(theme.secondary_bg_color || bg);
+  // v1.0.21 固定深色品牌风：Telegram 原生头/背景跟随暗夜底色，避免浅色主题下撕裂
+  webApp.setHeaderColor?.('#0b0d13');
+  webApp.setBackgroundColor?.('#0b0d13');
   const metaThemeColor = document.querySelector('meta[name="theme-color"]');
-  if (metaThemeColor) metaThemeColor.setAttribute('content', theme.secondary_bg_color || bg);
+  if (metaThemeColor) metaThemeColor.setAttribute('content', '#0b0d13');
 }
 
 async function requestLoginSession() {

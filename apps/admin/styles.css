@@ -320,3 +320,224 @@ tbody tr:hover { background: #f4f7ff; }
   .outline-button, .solid-button, .side-nav button, .kpi, .product-row, .category-row, .variant-chip, tbody tr { transition: none !important; }
   .outline-button:active, .solid-button:active, .side-nav button:active { transform: none !important; }
 }
+
+/* =========================================================
+   v1.0.21 Aurora Dark — 后台暗夜流光视觉重构
+   与买家端同款：墨夜底色 + 靛紫渐变 + 玻璃面板。
+   ========================================================= */
+
+:root {
+  --ink: #eef1f8;
+  --muted: #8f99ad;
+  --paper: #0b0e16;
+  --panel: #131828;
+  --line: rgba(255,255,255,.09);
+  --teal: #8b7bff;
+  --teal-soft: rgba(124,92,255,.16);
+  --coral: #ff6b78;
+  --gold: #f5b84e;
+  --dash-grad: linear-gradient(135deg, #7c5cff 0%, #3b9df8 100%);
+  --dash-ok: #2dd4a7;
+  --dash-warn: #f5b84e;
+  --dash-danger: #ff5d6c;
+}
+
+html, body { background: var(--paper); color: var(--ink); }
+.admin-shell {
+  background:
+    radial-gradient(50vw 40vh at 90% -8%, rgba(124,92,255,.14), transparent 60%),
+    radial-gradient(44vw 38vh at -10% 30%, rgba(59,157,248,.1), transparent 62%),
+    var(--paper);
+}
+.main { background: transparent; }
+
+/* —— 侧边栏：深空渐变 —— */
+.sidebar {
+  background: linear-gradient(180deg, #151a2e 0%, #0d1120 100%);
+  border-right: 0.5px solid rgba(255,255,255,.06);
+  color: #dfe4f4;
+}
+.admin-mark {
+  background: var(--dash-grad);
+  color: #fff;
+  box-shadow: 0 8px 20px rgba(124,92,255,.4), inset 0 0 0 1px rgba(255,255,255,.2);
+}
+.admin-brand small, .side-label { color: #7c88a8; }
+.side-nav button { color: #a9b2cc; }
+.side-nav button:hover, .side-nav button.active {
+  color: #fff;
+  background: rgba(124,92,255,.16);
+  box-shadow: inset 3px 0 var(--teal);
+}
+.sidebar-foot { border-top-color: rgba(255,255,255,.07); color: #7c88a8; }
+.sidebar-foot strong { color: #eef1f8; }
+
+/* —— 顶栏 —— */
+.main-top {
+  background: rgba(13,16,26,.8);
+  -webkit-backdrop-filter: saturate(160%) blur(20px);
+  backdrop-filter: saturate(160%) blur(20px);
+  border-bottom: 0.5px solid rgba(255,255,255,.07);
+}
+.main-top h1 { color: var(--ink); }
+.main-top p { color: var(--muted); }
+
+/* —— 按钮 —— */
+.outline-button {
+  border-color: rgba(255,255,255,.12);
+  color: var(--ink);
+  background: rgba(255,255,255,.05);
+}
+.outline-button:hover {
+  border-color: rgba(124,92,255,.55);
+  color: #fff;
+  background: rgba(124,92,255,.14);
+}
+.solid-button {
+  border-color: transparent;
+  background: var(--dash-grad);
+  box-shadow: 0 7px 18px rgba(124,92,255,.35);
+}
+.solid-button:hover { filter: brightness(1.12); background: var(--dash-grad); }
+.solid-button.coral { background: var(--dash-danger); box-shadow: 0 7px 18px rgba(255,93,108,.3); }
+.danger-button { border-color: rgba(255,93,108,.4); color: #ffa9b1; }
+.danger-button:hover { background: var(--dash-danger); border-color: transparent; color: #fff; }
+
+/* —— KPI 卡片 —— */
+.kpi {
+  border: 1px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.045);
+  box-shadow: 0 10px 28px rgba(0,0,0,.35);
+}
+.kpi-top { color: var(--muted); }
+.kpi-icon { color: #b9b2ff; background: rgba(124,92,255,.16); }
+.kpi-value { color: var(--ink); }
+.kpi > small { color: var(--muted); }
+
+/* —— 表格 —— */
+.table-wrap {
+  border: 1px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.03);
+  box-shadow: 0 10px 30px rgba(0,0,0,.3);
+}
+th {
+  background: rgba(255,255,255,.05);
+  color: var(--muted);
+}
+td { color: #c7cddc; border-bottom-color: rgba(255,255,255,.06); }
+td strong { color: var(--ink); }
+td small { color: var(--muted); }
+tbody tr:hover { background: rgba(124,92,255,.08); }
+td code { color: #9db8ff; }
+
+/* —— 状态标签 —— */
+.status {
+  color: #b9b2ff;
+  background: rgba(124,92,255,.16);
+}
+.status.draft { color: var(--dash-warn); background: rgba(245,184,78,.14); }
+.status.archived, .status.canceled, .status.payment_expired { color: #ffa9b1; background: rgba(255,93,108,.14); }
+
+/* —— 商品/分类卡片 —— */
+.product-row, .category-row {
+  border: 1px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.045);
+  box-shadow: 0 10px 26px rgba(0,0,0,.3);
+}
+.product-row h3, .category-main strong { color: var(--ink); }
+.product-row p, .category-main small { color: var(--muted); }
+.variant-chip {
+  border: 1px solid rgba(255,255,255,.09);
+  background: rgba(255,255,255,.05);
+  color: var(--muted);
+}
+.variant-chip b { color: #b9b2ff; }
+.category-idx { background: var(--dash-grad); box-shadow: 0 0 8px rgba(124,92,255,.6); }
+
+/* —— 表单面板 —— */
+.form-panel {
+  border: 1px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.045);
+  box-shadow: 0 10px 28px rgba(0,0,0,.3);
+}
+.form-panel h3, .modal-card h3, .panel-heading h3 { color: var(--ink); }
+.field label { color: var(--muted); }
+.field input, .field textarea, .field select {
+  border: 1px solid rgba(255,255,255,.11);
+  background: rgba(255,255,255,.06);
+  color: var(--ink);
+}
+.field input:focus, .field textarea:focus, .field select:focus {
+  border-color: var(--teal);
+  background: rgba(255,255,255,.08);
+  box-shadow: 0 0 0 3px rgba(124,92,255,.18);
+}
+.field input::placeholder, .field textarea::placeholder { color: #5c6577; }
+.user-search {
+  border: 1px solid rgba(255,255,255,.11);
+  background: rgba(255,255,255,.06);
+  color: var(--ink);
+}
+.user-search:focus { border-color: var(--teal); outline: 0; }
+.variant-toggle { color: var(--muted); }
+.variant-editor-row { border-top-color: rgba(255,255,255,.07); }
+
+/* —— 提示 / 空态 —— */
+.notice { background: rgba(255,255,255,.06); color: var(--muted); border: 1px solid rgba(255,255,255,.08); }
+.notice.error { color: #ffb3ba; background: rgba(255,93,108,.12); border-color: rgba(255,93,108,.3); }
+.empty { border-color: rgba(255,255,255,.13); background: rgba(255,255,255,.03); color: var(--muted); }
+.section-bar h2 { color: var(--ink); }
+.section-bar p { color: var(--muted); }
+
+/* —— 登录页 —— */
+.login-screen { background: #0b0e16; }
+.login-box {
+  background: #131828;
+  border: 1px solid rgba(255,255,255,.09);
+  box-shadow: 0 24px 70px rgba(0,0,0,.55), 0 0 60px rgba(124,92,255,.08);
+}
+.login-box h1 { color: var(--ink); }
+.login-box p { color: var(--muted); }
+
+/* —— 弹窗 —— */
+.modal-backdrop { background: rgba(3,5,9,.66); }
+.modal-card {
+  background: #131828;
+  border: 1px solid rgba(255,255,255,.1);
+  box-shadow: 0 24px 70px rgba(0,0,0,.55);
+}
+.modal-card .settings-copy { color: var(--muted); }
+
+/* —— Toast —— */
+.toast {
+  background: rgba(238,241,248,.95);
+  color: #0b0e16;
+  box-shadow: 0 12px 30px rgba(0,0,0,.5);
+}
+
+/* —— 支付控制台 —— */
+.payment-hero {
+  background:
+    radial-gradient(120% 150% at 90% -30%, rgba(124,92,255,.5), transparent 55%),
+    radial-gradient(110% 140% at -10% 120%, rgba(59,157,248,.35), transparent 60%),
+    linear-gradient(140deg, #1a1e34 0%, #111426 100%);
+  box-shadow: 0 16px 38px rgba(0,0,0,.45), 0 0 0 1px rgba(124,92,255,.22);
+}
+.payment-hero.offline { background: linear-gradient(140deg, #232836, #161a26); }
+.payment-eyebrow { color: #b3a6ff; }
+.payment-hero h2 { color: #fff; }
+.payment-hero p { color: #c7cdf2; }
+.payment-state { color: var(--dash-ok); background: rgba(45,212,167,.14); }
+.payment-state i { background: var(--dash-ok); box-shadow: 0 0 8px rgba(45,212,167,.8); }
+.payment-hero.offline .payment-state { color: var(--dash-warn); background: rgba(245,184,78,.13); }
+.payment-hero.offline .payment-state i { background: var(--dash-warn); }
+.panel-heading p { color: var(--muted); }
+.payment-webhook {
+  border: 1px solid rgba(255,255,255,.09);
+  background: rgba(255,255,255,.05);
+}
+.payment-webhook span { color: var(--muted); }
+.payment-webhook code { color: #9db8ff; }
+
+/* —— 用户头像 —— */
+.admin-user-avatar { background: var(--dash-grad); box-shadow: 0 4px 12px rgba(124,92,255,.35); }
