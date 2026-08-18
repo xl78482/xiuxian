@@ -187,7 +187,14 @@ function productsView() {
     <div class="form-actions"><button class="outline-button" data-action="toggle-panel" data-panel="product-form">取消</button><button class="solid-button" data-action="create-product">保存商品</button></div>
   </div>
   ${editing ? productEditor(editing) : ''}
+  <div class="section-bar"><div><h2>全部分类</h2><p>共 ${state.categories.length} 个分类</p></div></div>
+  <div class="category-list">${state.categories.length ? state.categories.map(categoryRow).join('') : '<div class="empty">暂无分类，请先创建分类。</div>'}</div>
+  <div class="section-bar"><div><h2>商品列表</h2><p>共 ${state.products.length} 件商品</p></div></div>
   <div class="product-list">${state.products.length ? state.products.map(productRow).join('') : '<div class="empty">暂无商品。</div>'}</div>`;
+}
+
+function categoryRow(category) {
+  return `<div class="category-row"><div class="category-idx"></div><div class="category-main"><strong>${esc(category.name)}</strong><small>${esc(category.slug)} · ${category.productCount} 件商品</small></div><span class="status ${category.isActive ? '' : 'archived'}">${category.isActive ? '启用' : '停用'}</span></div>`;
 }
 function productRow(product) {
   return `<article class="product-row"><div><h3>${esc(product.title)}</h3><p>${esc(product.categoryName ?? '未分类')} · ${esc(product.slug)}</p><span class="status ${statusClass(product.status)}">${statusLabel(product.status)}</span></div><div class="variant-chips">${product.variants.length ? product.variants.map((v) => `<span class="variant-chip ${v.stock < 5 ? 'low' : ''}">${esc(v.name)} <b>${money(v.priceFen)}</b><small>库存 ${v.stock} · 已售 ${v.sold}</small></span>`).join('') : '<small>暂无规格</small>'}</div><div class="row-actions"><button class="outline-button" data-action="edit-product" data-id="${esc(product.id)}">编辑</button><button class="outline-button" data-action="toggle-status" data-id="${esc(product.id)}" data-status="${product.status === 'active' ? 'archived' : 'active'}">${product.status === 'active' ? '下架' : '上架'}</button></div></article>`;

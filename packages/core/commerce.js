@@ -1910,8 +1910,20 @@ export class CommerceService {
   }
 
   listCategories() {
-    return many(this.db, 'SELECT id, name, slug, position, is_active AS isActive FROM categories ORDER BY position, name')
-      .map((category) => ({ ...category, isActive: asBoolean(category.isActive) }));
+    return many(
+      this.db,
+      `SELECT c.id, c.name, c.slug, c.position, c.is_active,
+              COUNT(p.id) AS product_count
+       FROM categories c LEFT JOIN products p ON p.category_id = c.id
+       GROUP BY c.id ORDER BY c.position, c.name`,
+    ).map((category) => ({
+      id: category.id,
+      name: category.name,
+      slug: category.slug,
+      position: Number(category.position),
+      isActive: asBoolean(category.is_active),
+      productCount: Number(category.product_count),
+    }));
   }
 
   listAdminOrders() {
