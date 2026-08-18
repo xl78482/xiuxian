@@ -174,6 +174,7 @@ function ordersGroupCount(group) {
 function setTelegramTheme() {
   const webApp = window.Telegram?.WebApp;
   if (!webApp) return;
+  document.documentElement.classList.add('telegram-miniapp');
   webApp.ready();
   webApp.expand();
   const theme = webApp.themeParams ?? {};
@@ -328,7 +329,7 @@ function renderHeader() {
   const [title, subtitle] = titles[state.activeTab];
   return `
     <header class="mini-header">
-      <div class="mini-header-title">
+      <div class="mini-header-title ${state.activeTab === 'shop' ? 'has-logo' : ''}">
         ${state.activeTab === 'shop' ? '<span class="mini-logo">XX</span>' : ''}
         <div><h1>${title}</h1>${subtitle ? `<p>${subtitle}</p>` : ''}</div>
       </div>
@@ -471,7 +472,7 @@ function profileView() {
     <div class="native-menu">
       <button data-action="switch-tab" data-tab="orders"><span>${icon.receipt}<b>我的订单</b></span>${icon.chevron}</button>
       ${state.publicConfig?.supportUrl ? `<button data-action="open-support"><span>${icon.support}<b>联系售后</b></span>${icon.chevron}</button>` : ''}
-      <div><span>${icon.shield}<b>当前版本</b></span><small>v${esc(state.publicConfig?.version ?? '1.0.30')}</small></div>
+      <div><span>${icon.shield}<b>当前版本</b></span><small>v${esc(state.publicConfig?.version ?? '1.0.31')}</small></div>
     </div>
   </section>`;
 }

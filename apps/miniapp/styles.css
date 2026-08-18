@@ -1847,8 +1847,8 @@ html, body, .native-shell, .app-shell {
 .shop-view .category-strip { padding-top: 8px; }
 
 /* =========================================================
-   v1.0.30 — Telegram 顶部内容安全区
-   使用 Telegram WebApp 官方 contentSafeAreaInset，避免原生关闭栏遮挡标题。
+   v1.0.31 — Telegram 顶部内容安全区与标题居中
+   使用 Telegram WebApp 官方 contentSafeAreaInset，并在 iOS 客户端缺省时保留兜底间距。
    ========================================================= */
 :root { --mini-content-safe-area-top: 0px; }
 .mini-header {
@@ -1860,4 +1860,62 @@ html, body, .native-shell, .app-shell {
   );
   min-height: calc(76px + var(--mini-header-safe-top));
   padding-top: calc(14px + var(--mini-header-safe-top));
+}
+
+/* Telegram iOS 有时不会回传 contentSafeAreaInset；保留原生控件的最小避让空间。 */
+@media (max-width: 719px) {
+  .telegram-miniapp .mini-header {
+    --mini-header-safe-top: max(
+      50px,
+      env(safe-area-inset-top, 0px),
+      var(--tg-safe-area-inset-top, 0px),
+      var(--tg-content-safe-area-inset-top, 0px),
+      var(--mini-content-safe-area-top, 0px)
+    );
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    --mini-header-content-offset: 12px;
+    min-height: calc(84px + var(--mini-header-safe-top));
+    padding-top: calc(14px + var(--mini-header-safe-top));
+  }
+  .telegram-miniapp .mini-header > * { transform: translateY(var(--mini-header-content-offset)); }
+  .telegram-miniapp .mini-header-title {
+    grid-column: 2;
+    justify-self: center;
+  }
+  .telegram-miniapp .mini-header-actions {
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: end;
+  }
+  .telegram-miniapp .mini-header-title > div { text-align: center; }
+  .telegram-miniapp .mini-header-title.has-logo {
+    grid-column: 1 / -1;
+    width: 100%;
+    position: relative;
+    justify-content: center;
+  }
+  .telegram-miniapp .mini-header-title.has-logo .mini-logo {
+    position: absolute;
+    left: 0;
+    display: grid;
+  }
+  .telegram-miniapp .detail-header {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 0;
+  }
+  .telegram-miniapp .detail-header > .mini-icon-button {
+    grid-column: 1;
+    justify-self: start;
+  }
+  .telegram-miniapp .detail-header-title {
+    grid-column: 2;
+    justify-self: center;
+    text-align: center;
+  }
+  .telegram-miniapp .detail-header > .header-spacer {
+    grid-column: 3;
+    justify-self: end;
+    margin-left: 0;
+  }
 }
