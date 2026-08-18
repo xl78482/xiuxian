@@ -4,6 +4,7 @@ const state = {
   user: null,
   catalog: [],
   activeTab: 'shop',
+  tabTransition: null,
   orders: null,
   ordersLoading: false,
   selectedCategory: 'all',
@@ -228,14 +229,31 @@ function productDetailView(product) {
   </section>`;
 }
 
-function renderTabbar() {
+function tabIndex(tab) {
+  return ['shop', 'orders', 'profile'].indexOf(tab);
+}
+
+function renderMainViews(transition = null) {
+  const tabs = [
+    ['shop', shopView],
+    ['orders', ordersView],
+    ['profile', profileView],
+  ];
+  const activeIndex = tabIndex(state.activeTab);
+  const initialIndex = transition?.from ?? activeIndex;
+  return `<div class="mini-tab-viewport"><div class="mini-tab-track" data-tab-track style="transform:translate3d(${initialIndex * -33.333333}%,0,0)">${tabs.map(([tab, view]) => `<div class="mini-tab-panel" data-tab-panel="${tab}" aria-hidden="${tab !== state.activeTab}" ${tab !== state.activeTab ? 'inert' : ''}>${view()}</div>`).join('')}</div></div>`;
+}
+
+function renderTabbar(transition = null) {
   const orderCount = state.orders?.length ?? 0;
   const tabs = [
     ['shop', '商城', icon.home],
     ['orders', '订单', icon.receipt],
     ['profile', '我的', icon.user],
   ];
-  return `<nav class="mini-tabbar" aria-label="主导航"><div class="mini-tabbar-inner">${tabs.map(([tab, label, glyph]) => `<button class="mini-tab ${state.activeTab === tab ? 'active' : ''}" data-action="switch-tab" data-tab="${tab}"><span class="mini-tab-icon">${glyph}</span><span class="mini-tab-label">${label}</span>${tab === 'orders' ? `<b>${orderCount}</b>` : ''}</button>`).join('')}</div></nav>`;
+  const activeIndex = tabIndex(state.activeTab);
+  const initialIndex = transition?.from ?? activeIndex;
+  return `<nav class="mini-tabbar" aria-label="主导航"><div class="mini-tabbar-inner"><span class="mini-tabbar-slider" data-tab-slider aria-hidden="true" style="transform:translate3d(${initialIndex * 100}%,0,0)"></span>${tabs.map(([tab, label, glyph]) => `<button class="mini-tab ${state.activeTab === tab ? 'active' : ''}" data-action="switch-tab" data-tab="${tab}"><span class="mini-tab-icon">${glyph}</span><span class="mini-tab-label">${label}</span>${tab === 'orders' ? `<b>${orderCount}</b>` : ''}</button>`).join('')}</div></nav>`;
 }
 
 function shopView() {
@@ -343,15 +361,53 @@ function addressOf(instructions) {
   return instructions?.address ?? '';
 }
 
+function syncTabViewportHeight() {
+  const viewport = document.querySelector('.mini-tab-viewport');
+  const activePanel = viewport?.querySelector(`[data-tab-panel="${state.activeTab}"]`);
+  if (!viewport || !activePanel) return;
+  const update = () => { viewport.style.height = `${activePanel.scrollHeight}px`; };
+  update();
+  requestAnimationFrame(update);
+}
+
+function refreshTabPanel(tab) {
+  const views = { shop: shopView, orders: ordersView, profile: profileView };
+  const panel = document.querySelector(`[data-tab-panel="${tab}"]`);
+  const view = views[tab];
+  if (!panel || !view) return false;
+  panel.innerHTML = view();
+  if (tab === 'orders') {
+    const badge = document.querySelector('.mini-tab[data-tab="orders"] b');
+    if (badge) badge.textContent = String(state.orders?.length ?? 0);
+  }
+  if (tab === state.activeTab) syncTabViewportHeight();
+  return true;
+}
+
+function playTabTransition(transition) {
+  if (!transition || transition.from === transition.to) return;
+  const track = document.querySelector('[data-tab-track]');
+  const slider = document.querySelector('[data-tab-slider]');
+  if (!track || !slider) return;
+  const activeIndex = tabIndex(state.activeTab);
+  requestAnimationFrame(() => {
+    track.style.transform = `translate3d(${activeIndex * -33.333333}%, 0, 0)`;
+    slider.style.transform = `translate3d(${activeIndex * 100}%, 0, 0)`;
+  });
+}
+
 function renderCatalog() {
+  const transition = state.tabTransition;
+  state.tabTransition = null;
   const detail = state.detailProductId ? findProduct(state.detailProductId) : null;
   const inRecharge = state.showRecharge;
-  const views = { shop: shopView, orders: ordersView, profile: profileView };
   let content;
   if (detail) content = productDetailView(detail);
   else if (inRecharge) content = rechargeView();
-  else content = views[state.activeTab]();
-  app.innerHTML = `<div class="app-shell native-shell ${detail ? 'detail-shell' : ''}">${renderHeader()}<main class="mini-content">${content}</main>${renderDrawer()}<section class="order-panel" id="order-panel"></section>${detail || inRecharge ? '' : renderTabbar()}<div class="toast" id="toast" role="status"></div></div>`;
+  else content = renderMainViews(transition);
+  app.innerHTML = `<div class="app-shell native-shell ${detail ? 'detail-shell' : ''}">${renderHeader()}<main class="mini-content">${content}</main>${renderDrawer()}<section class="order-panel" id="order-panel"></section>${detail || inRecharge ? '' : renderTabbar(transition)}<div class="toast" id="toast" role="status"></div></div>`;
+  syncTabViewportHeight();
+  playTabTransition(transition);
 }
 
 function renderDrawer() {
@@ -565,18 +621,18 @@ function closeOrder() {
   }
 }
 
-async function loadOrders(force = false) {
+async function loadOrders(force = false, { renderLoading = true } = {}) {
   if (state.orders && !force) {
-    renderCatalog();
+    if (renderLoading) renderCatalog();
     return;
   }
   state.ordersLoading = true;
-  renderCatalog();
+  if (renderLoading) renderCatalog();
   try {
     state.orders = await api('/api/orders');
   } finally {
     state.ordersLoading = false;
-    renderCatalog();
+    if (!refreshTabPanel('orders')) renderCatalog();
   }
 }
 
@@ -597,15 +653,18 @@ function closeDetail() {
 
 async function switchTab(tab) {
   if (!['shop', 'orders', 'profile'].includes(tab)) return;
+  const previousTab = state.activeTab;
   state.detailProductId = null;
   state.showRecharge = false;
   clearInterval(state.orderPoll);
   stopPaymentTimer();
   state.activeTab = tab;
+  if (previousTab !== tab) state.tabTransition = { from: tabIndex(previousTab), to: tabIndex(tab) };
+  if (tab === 'orders' && !state.orders) state.ordersLoading = true;
   history.replaceState({}, '', '/');
   renderCatalog();
   window.Telegram?.WebApp?.HapticFeedback?.selectionChanged?.();
-  if (tab === 'orders') await loadOrders();
+  if (tab === 'orders') await loadOrders(false, { renderLoading: false });
 }
 
 async function showOrders() {
