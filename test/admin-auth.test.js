@@ -28,6 +28,11 @@ test('authenticates an independent admin and encrypts Telegram settings', () => 
     assert.equal(settings.getTelegramBotToken(), '123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ_123456');
     const stored = db.prepare('SELECT value_ciphertext FROM app_settings WHERE key = ?').get('telegram_bot_token');
     assert.notEqual(stored.value_ciphertext, '123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ_123456');
+    settings.setPaymentConfig({ enabled: true, keyId: 'merchant-key', secret: 'merchant-secret', webhookSecret: 'webhook-secret', baseUrl: 'https://www.dujiaopay.com', chain: 'tron', tokenId: 'tron-usdt', ttlMinutes: 15 });
+    assert.equal(settings.getPaymentConfig().secret, 'merchant-secret');
+    assert.ok(settings.getPaymentConfigMetadata().updatedAt);
+    const paymentStored = db.prepare('SELECT value_ciphertext FROM app_settings WHERE key = ?').get('payment_config');
+    assert.equal(paymentStored.value_ciphertext.includes('merchant-secret'), false);
     accounts.update(account.id, { password: 'new-strong-admin-password' });
     assert.equal(accounts.authenticate('operator', 'new-strong-admin-password').id, account.id);
   } finally {

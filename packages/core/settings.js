@@ -1,6 +1,7 @@
 import { one, run, nowIso } from './database.js';
 
 const TELEGRAM_BOT_TOKEN_KEY = 'telegram_bot_token';
+const PAYMENT_CONFIG_KEY = 'payment_config';
 
 export class SettingsStore {
   constructor(db, secretCrypto) {
@@ -53,6 +54,24 @@ export class SettingsStore {
   isTelegramBotTokenConfigured() {
     return Boolean(this.getTelegramBotToken());
   }
+
+  getPaymentConfig() {
+    const value = this.get(PAYMENT_CONFIG_KEY);
+    if (!value) return null;
+    try {
+      return JSON.parse(value);
+    } catch {
+      throw new Error('支付渠道设置格式损坏，请在后台重新保存。');
+    }
+  }
+
+  getPaymentConfigMetadata() {
+    return this.getMetadata(PAYMENT_CONFIG_KEY);
+  }
+
+  setPaymentConfig(config) {
+    return this.set(PAYMENT_CONFIG_KEY, JSON.stringify(config));
+  }
 }
 
-export { TELEGRAM_BOT_TOKEN_KEY };
+export { PAYMENT_CONFIG_KEY, TELEGRAM_BOT_TOKEN_KEY };

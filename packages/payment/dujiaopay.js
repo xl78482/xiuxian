@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { PaymentProviderError, normalizePaymentInstructions } from './index.js';
+import { normalizeDujiaoPayConfig, validateDujiaoPayConfig } from './config.js';
 
 function sha256Hex(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
@@ -46,11 +47,29 @@ function required(value, name) {
 export class DujiaoPayProvider {
   constructor(config) {
     this.name = 'dujiaopay';
-    this.config = config;
-    this.baseUrl = new URL(config.baseUrl);
+    this.updateConfig(config);
+  }
+
+  updateConfig(config) {
+    this.config = validateDujiaoPayConfig(normalizeDujiaoPayConfig(config));
+    this.baseUrl = new URL(this.config.baseUrl);
+    return this.config;
+  }
+
+  isConfigured() {
+    return Boolean(this.config.keyId && this.config.secret && this.config.webhookSecret);
+  }
+
+  isEnabled() {
+    return this.config.enabled && this.isConfigured();
+  }
+
+  assertConfigured() {
+    if (!this.isConfigured()) throw new PaymentProviderError('DujiaoPay payment channel is not configured.', 'payment_not_configured', 503);
   }
 
   async createPayment(input) {
+    if (!this.isEnabled()) throw new PaymentProviderError('DujiaoPay payment channel is disabled.', 'payment_disabled', 503);
     const data = await this.request('POST', '/v1/orders', {
       chain: this.config.chain,
       token_id: this.config.tokenId,
@@ -90,6 +109,7 @@ export class DujiaoPayProvider {
   }
 
   async whoAmI() {
+    this.assertConfigured();
     const data = await this.request('GET', '/v1/whoami');
     return {
       merchantId: required(data.merchant_id, 'merchant_id'),
@@ -99,11 +119,13 @@ export class DujiaoPayProvider {
   }
 
   async getOrder(providerOrderId) {
+    this.assertConfigured();
     const data = await this.request('GET', `/v1/orders/${encodeURIComponent(providerOrderId)}`);
     return this.mapOrder(data);
   }
 
   async cancelPayment(providerOrderId) {
+    this.assertConfigured();
     await this.request('POST', `/v1/orders/${encodeURIComponent(providerOrderId)}/cancel`);
   }
 

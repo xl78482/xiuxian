@@ -2,7 +2,7 @@
 
 Telegram Mini App 自动发卡平台。当前版本使用零第三方运行时依赖的 Node.js 22 + SQLite，运行时支付统一使用 DujiaoPay，买家登录统一使用 Telegram `initData`。
 
-当前版本：`1.0.8`
+当前版本：`1.0.9`
 
 版本更新内容见 [CHANGELOG.md](./CHANGELOG.md)，发布规则见 [RELEASING.md](./RELEASING.md)，尚未完成的上线与运营能力见 [ROADMAP.md](./ROADMAP.md)。
 
@@ -15,7 +15,7 @@ Telegram Mini App 自动发卡平台。当前版本使用零第三方运行时�
 - DujiaoPay HMAC 请求签名和原始 Webhook body 验签
 - Tron USDT 支付配置，保留后续 EPUSDT 等适配器边界
 - 买家端订单、支付轮询、卡密查看/复制、支付会话恢复、售后入口
-- 管理后台数据看板、用户管理、商品/SKU、卡密导入、订单和发卡重试
+- 管理后台数据看板、用户管理、商品/SKU、卡密导入、支付渠道配置、订单和发卡重试
 - API 与 Worker 分离，SQLite 数据目录持久化，Docker Compose 生产编排
 
 ## 本地运行
@@ -34,7 +34,7 @@ SESSION_SECRET=$(node -e "console.log(require('node:crypto').randomBytes(32).toS
 CARD_ENCRYPTION_KEY=$(node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))")
 ```
 
-必须同时填写 `TELEGRAM_BOT_TOKEN`、`DUJIAOPAY_KEY_ID`、`DUJIAOPAY_SECRET` 和 `DUJIAOPAY_WEBHOOK_SECRET`。浏览器直接打开买家地址不会创建开发账号，必须从 Telegram Bot 的 Mini App 按钮进入。
+必须填写 `TELEGRAM_BOT_TOKEN`。DujiaoPay 的三项密钥可以在 `.env` 中同时填写，也可以先留空并在后台“支付渠道”页加密配置；未完整配置时买家端会禁止创建新订单。浏览器直接打开买家地址不会创建开发账号，必须从 Telegram Bot 的 Mini App 按钮进入。
 
 也可以直接执行：
 
@@ -51,11 +51,11 @@ npm run dev
 - 管理后台：`http://localhost:3000/admin`
 - 健康检查：`http://localhost:3000/api/health`
 
-管理后台使用独立网页账号密码登录，不需要在 Telegram 内打开。首次启动前必须通过 `ADMIN_USERNAME` 和 `ADMIN_PASSWORD` 初始化管理员账号，任何环境都不会生成默认密码。登录后可在“系统设置”中修改账号密码和配置 Telegram Bot Token；首次账号落库并修改密码后，可从 `.env` 删除初始 `ADMIN_PASSWORD`。
+管理后台使用独立网页账号密码登录，不需要在 Telegram 内打开。首次启动前必须通过 `ADMIN_USERNAME` 和 `ADMIN_PASSWORD` 初始化管理员账号，任何环境都不会生成默认密码。登录后可在“系统设置”中修改账号密码和配置 Telegram Bot Token，也可在“支付渠道”中配置或暂停 DujiaoPay。支付密钥使用服务端 AES-256-GCM 加密保存，GET 接口和页面不会回显明文；保存后 API 立即使用新配置，Worker 会在下一轮对账同步。首次账号落库并修改密码后，可从 `.env` 删除初始 `ADMIN_PASSWORD`。
 
 ## DujiaoPay 配置
 
-生产环境必须设置：
+生产环境可在 `.env` 预置以下变量，也可在首次登录后台后从“支付渠道”页保存相同配置。若采用后台配置，三项密钥会加密保存在 SQLite；不要同时在多个实例中使用不同的 `CARD_ENCRYPTION_KEY`。
 
 ```dotenv
 NODE_ENV=production
@@ -126,8 +126,9 @@ npm run backup -- /mnt/secure-backups
 - `POST /api/orders/:orderNo/payment-session`：恢复支付会话
 - `POST /api/webhooks/dujiaopay`：DujiaoPay 回调
 - `POST /api/auth/admin/password`：独立管理员账号密码登录
-- `GET /api/admin/settings`：查看非敏感系统设置状态
-- `PATCH /api/admin/settings`：加密保存 Telegram Bot Token
+- `GET /api/admin/settings`：查看非敏感 Telegram 与支付渠道配置状态
+- `PATCH /api/admin/settings`：加密保存 Telegram Bot Token 或 DujiaoPay 支付配置
+- `POST /api/admin/settings/test-payment`：验证已配置的 DujiaoPay 凭据
 - `PATCH /api/admin/account`：修改管理员账号或密码
 - `GET /api/admin/users`：买家资料、订单和消费统计
 - `PATCH /api/admin/users/:id/status`：停用或恢复买家账号

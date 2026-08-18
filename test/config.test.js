@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { loadConfig } from '../packages/core/config.js';
+import { validateDujiaoPayConfig } from '../packages/payment/config.js';
 
 const baseEnvironment = {
   NODE_ENV: 'development',
@@ -54,15 +55,24 @@ test('rejects the removed mock payment provider', () => {
   }
 });
 
-test('requires all real DujiaoPay credentials', () => {
+test('allows an unconfigured DujiaoPay channel for first-time admin setup', () => {
   const root = temporaryRoot();
   try {
-    withEnvironment({ DUJIAOPAY_WEBHOOK_SECRET: '' }, () => {
-      assert.throws(() => loadConfig(root), /DUJIAOPAY_WEBHOOK_SECRET is required/);
+    withEnvironment({ DUJIAOPAY_KEY_ID: '', DUJIAOPAY_SECRET: '', DUJIAOPAY_WEBHOOK_SECRET: '' }, () => {
+      const config = loadConfig(root);
+      assert.equal(config.dujiaopay.enabled, false);
+      assert.equal(config.dujiaopay.keyId, '');
     });
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('requires complete DujiaoPay secrets before an enabled channel is saved', () => {
+  assert.throws(
+    () => validateDujiaoPayConfig({ enabled: true, keyId: 'key', secret: '', webhookSecret: 'webhook' }, { requireComplete: true }),
+    /API Secret/,
+  );
 });
 
 test('loads the real DujiaoPay provider configuration', () => {

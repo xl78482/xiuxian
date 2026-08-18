@@ -7,6 +7,8 @@ const state = {
   orders: null,
   ordersLoading: false,
   selectedCategory: 'all',
+  searchQuery: '',
+  detailProductId: null,
   selectedVariants: new Map(),
   checkout: null,
   orderPoll: null,
@@ -39,6 +41,9 @@ const icon = {
   support: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13v-2a8 8 0 0 1 16 0v2"/><path d="M4 13h3v6H5a1 1 0 0 1-1-1v-5ZM20 13h-3v6h2a1 1 0 0 0 1-1v-5ZM17 19c0 1-2 2-5 2"/></svg>',
   chevron: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>',
   refresh: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5M4 18v-5h5"/><path d="M6.1 9a7 7 0 0 1 11.5-2.4L20 11M4 13l2.4 4.4A7 7 0 0 0 17.9 15"/></svg>',
+  search: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 5 5"/></svg>',
+  back: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>',
+  info: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 10v6M12 7h.01"/></svg>',
 };
 
 function esc(value) {
@@ -145,6 +150,10 @@ function findVariant(product, variantId) {
 }
 
 function renderHeader() {
+  const detail = state.detailProductId ? findProduct(state.detailProductId) : null;
+  if (detail) {
+    return `<header class="mini-header detail-header"><button class="mini-icon-button" data-action="close-detail" title="返回商城" aria-label="返回商城">${icon.back}</button><div class="detail-header-title"><strong>${esc(detail.title)}</strong><small>商品详情</small></div><span class="header-spacer"></span></header>`;
+  }
   const titles = {
     shop: ['XiuXian', '数字商品商城'],
     orders: ['我的订单', '支付与交付记录'],
@@ -158,31 +167,59 @@ function renderHeader() {
         <div><h1>${title}</h1><p>${subtitle}</p></div>
       </div>
       <div class="mini-header-actions">
+        ${state.activeTab === 'shop' ? `<button class="mini-icon-button" data-action="focus-search" title="搜索商品" aria-label="搜索商品">${icon.search}</button>` : ''}
         ${state.activeTab === 'orders' ? `<button class="mini-icon-button" data-action="refresh-orders" title="刷新订单" aria-label="刷新订单">${icon.refresh}</button>` : ''}
       </div>
     </header>`;
 }
 
+function productImage(product) {
+  return esc(product.imageUrl || '/assets/stream-pass.png');
+}
+
+function purchaseLabel(variant) {
+  if (!variant || variant.stock < 1) return '售罄';
+  if (state.publicConfig?.paymentReady) return '购买';
+  return state.publicConfig?.paymentConfigured ? '已暂停' : '待配置';
+}
+
 function productCard(product) {
   const selectedId = state.selectedVariants.get(product.id) ?? product.variants[0]?.id;
   const selected = findVariant(product, selectedId);
-  const image = product.imageUrl ? esc(product.imageUrl) : '';
+  const purchasable = Boolean(state.publicConfig?.paymentReady && selected && selected.stock > 0);
   return `
     <article class="product-card">
-      <img class="product-image" src="${image}" alt="${esc(product.title)}" />
-      <div class="product-body">
-        <div class="product-meta"><span>${esc(product.category?.name ?? '数字商品')}</span><span>已售 ${selected?.sold ?? 0}</span></div>
-        <h3 class="product-title">${esc(product.title)}</h3>
-        <p class="product-description">${esc(product.description)}</p>
-        <div class="product-price"><strong>${money(selected?.priceFen ?? 0)}</strong><span>${selected?.stock ?? 0} 份可售</span></div>
-        <div class="variant-row">
-          <select class="variant-select" data-product-id="${esc(product.id)}" aria-label="选择 ${esc(product.title)} 规格">
-            ${product.variants.map((variant) => `<option value="${esc(variant.id)}" ${variant.id === selectedId ? 'selected' : ''} ${variant.stock < 1 ? 'disabled' : ''}>${esc(variant.name)}${variant.stock < 1 ? ' · 售罄' : ''}</option>`).join('')}
-          </select>
-          <button class="buy-button" data-action="open-checkout" data-product-id="${esc(product.id)}" title="购买 ${esc(product.title)}" aria-label="购买 ${esc(product.title)}" ${!selected || selected.stock < 1 ? 'disabled' : ''}>${icon.bag}<span>购买</span></button>
+      <button class="product-open" data-action="open-detail" data-product-id="${esc(product.id)}" aria-label="查看 ${esc(product.title)} 详情">
+        <img class="product-image" src="${productImage(product)}" alt="${esc(product.title)}" />
+        <div class="product-body">
+          <div class="product-meta"><span>${esc(product.category?.name ?? '数字商品')}</span><span>已售 ${selected?.sold ?? 0}</span></div>
+          <h3 class="product-title">${esc(product.title)}</h3>
+          <p class="product-description">${esc(product.description || '即时交付的数字商品')}</p>
+          <div class="product-price"><strong>${money(selected?.priceFen ?? 0)}</strong><span>${selected?.stock ?? 0} 份可售</span></div>
         </div>
+      </button>
+      <div class="product-actions">
+        <select class="variant-select" data-product-id="${esc(product.id)}" aria-label="选择 ${esc(product.title)} 规格">
+          ${product.variants.map((variant) => `<option value="${esc(variant.id)}" ${variant.id === selectedId ? 'selected' : ''} ${variant.stock < 1 ? 'disabled' : ''}>${esc(variant.name)}${variant.stock < 1 ? ' · 售罄' : ''}</option>`).join('')}
+        </select>
+        <button class="buy-button" data-action="open-checkout" data-product-id="${esc(product.id)}" title="购买 ${esc(product.title)}" aria-label="购买 ${esc(product.title)}" ${!purchasable ? 'disabled' : ''}>${icon.bag}<span>${purchaseLabel(selected)}</span></button>
       </div>
     </article>`;
+}
+
+function productDetailView(product) {
+  const selectedId = state.selectedVariants.get(product.id) ?? product.variants[0]?.id;
+  const selected = findVariant(product, selectedId);
+  const purchasable = Boolean(state.publicConfig?.paymentReady && selected && selected.stock > 0);
+  const minPrice = Math.min(...product.variants.map((variant) => variant.priceFen));
+  const totalStock = product.variants.reduce((sum, variant) => sum + variant.stock, 0);
+  return `<section class="product-detail">
+    <div class="detail-cover"><img src="${productImage(product)}" alt="${esc(product.title)}" /><span>${esc(product.category?.name ?? '数字商品')}</span></div>
+    <div class="detail-intro"><div class="detail-kicker">即时交付 · 安全库存</div><h1>${esc(product.title)}</h1><p>${esc(product.description || '付款确认后，系统自动交付数字商品。')}</p><div class="detail-stats"><span><b>${selected?.sold ?? 0}</b> 已售</span><span><b>${totalStock}</b> 份库存</span><span>起价 <b>${money(minPrice)}</b></span></div></div>
+    <section class="detail-section"><div class="detail-section-title"><h2>选择规格</h2><span>${product.variants.length} 个选项</span></div><div class="detail-variants">${product.variants.map((variant) => `<button class="detail-variant ${variant.id === selectedId ? 'active' : ''} ${variant.stock < 1 ? 'sold-out' : ''}" data-action="select-detail-variant" data-product-id="${esc(product.id)}" data-variant-id="${esc(variant.id)}" ${variant.stock < 1 ? 'disabled' : ''}><span><strong>${esc(variant.name)}</strong><small>${variant.stock > 0 ? `${variant.stock} 份可售` : '暂时售罄'}</small></span><b>${money(variant.priceFen)}</b></button>`).join('')}</div></section>
+    <section class="detail-section detail-copy"><div class="detail-section-title"><h2>商品说明</h2>${icon.info}</div><p>${esc(product.instructions || '支付成功后，卡密会显示在订单详情中，请及时复制保存。')}</p></section>
+    <div class="detail-buybar"><div><small>当前规格 · ${esc(selected?.name ?? '未选择')}</small><strong>${money(selected?.priceFen ?? 0)}</strong></div><button class="primary-button" data-action="open-checkout" data-product-id="${esc(product.id)}" ${!purchasable ? 'disabled' : ''}>${icon.bag}<span>${state.publicConfig?.paymentReady ? '立即购买' : state.publicConfig?.paymentConfigured ? '支付已暂停' : '支付配置中'}</span></button></div>
+  </section>`;
 }
 
 function renderTabbar() {
@@ -198,17 +235,21 @@ function renderTabbar() {
 function shopView() {
   const categoryMap = new Map();
   for (const product of state.catalog) if (product.category) categoryMap.set(product.category.id, product.category);
-  const products = state.selectedCategory === 'all'
-    ? state.catalog
-    : state.catalog.filter((product) => product.category?.id === state.selectedCategory);
+  const query = state.searchQuery.trim().toLowerCase();
+  const products = state.catalog.filter((product) => {
+    const categoryMatch = state.selectedCategory === 'all' || product.category?.id === state.selectedCategory;
+    const searchMatch = !query || `${product.title} ${product.description} ${product.category?.name ?? ''}`.toLowerCase().includes(query);
+    return categoryMatch && searchMatch;
+  });
   return `<section class="shop-view">
-    <div class="shop-banner"><div><span>INSTANT DELIVERY</span><h2>数字卡密，付款后即刻送达</h2><p>USDT · TRON</p></div><div class="banner-mark">XX</div></div>
+    <div class="shop-banner"><div><span>INSTANT DELIVERY</span><h2>今天想补充什么？</h2><p>${state.publicConfig?.paymentReady ? `${String(state.publicConfig.paymentToken ?? 'USDT').split('-').at(-1).toUpperCase()} · ${String(state.publicConfig.paymentChain ?? 'TRON').toUpperCase()} · 自动发卡` : '支付渠道配置中 · 暂不可下单'}</p></div><div class="banner-mark">XX</div></div>
+    <label class="catalog-search">${icon.search}<input id="catalog-search" type="search" value="${esc(state.searchQuery)}" placeholder="搜索商品、类型或关键词" aria-label="搜索商品" /></label>
     <div class="filter-row" role="tablist" aria-label="商品分类">
       <button class="filter ${state.selectedCategory === 'all' ? 'active' : ''}" data-action="filter" data-category="all">全部</button>
       ${[...categoryMap.values()].map((category) => `<button class="filter ${state.selectedCategory === category.id ? 'active' : ''}" data-action="filter" data-category="${esc(category.id)}">${esc(category.name)}</button>`).join('')}
     </div>
-    <div class="native-section-title"><h2>精选商品</h2><span>${products.length} 件</span></div>
-    <div class="product-grid">${products.length ? products.map(productCard).join('') : `<div class="native-empty compact">${icon.package}<h2>暂无商品</h2></div>`}</div>
+    <div class="native-section-title"><div><span class="section-eyebrow">COLLECTION</span><h2>精选商品</h2></div><span>${products.length} 件</span></div>
+    <div class="product-grid">${products.length ? products.map(productCard).join('') : `<div class="native-empty compact">${icon.package}<h2>没有匹配商品</h2><p>换个关键词或查看全部分类</p></div>`}</div>
   </section>`;
 }
 
@@ -230,14 +271,16 @@ function profileView() {
     <div class="native-menu">
       <button data-action="switch-tab" data-tab="orders"><span>${icon.receipt}<b>我的订单</b></span>${icon.chevron}</button>
       ${state.publicConfig?.supportUrl ? `<button data-action="open-support"><span>${icon.support}<b>联系售后</b></span>${icon.chevron}</button>` : ''}
-      <div><span>${icon.shield}<b>当前版本</b></span><small>v${esc(state.publicConfig?.version ?? '1.0.7')}</small></div>
+      <div><span>${icon.shield}<b>当前版本</b></span><small>v${esc(state.publicConfig?.version ?? '1.0.8')}</small></div>
     </div>
   </section>`;
 }
 
 function renderCatalog() {
+  const detail = state.detailProductId ? findProduct(state.detailProductId) : null;
   const views = { shop: shopView, orders: ordersView, profile: profileView };
-  app.innerHTML = `<div class="app-shell native-shell">${renderHeader()}<main class="mini-content">${views[state.activeTab]()}</main>${renderDrawer()}<section class="order-panel" id="order-panel"></section>${renderTabbar()}<div class="toast" id="toast" role="status"></div></div>`;
+  const content = detail ? productDetailView(detail) : views[state.activeTab]();
+  app.innerHTML = `<div class="app-shell native-shell ${detail ? 'detail-shell' : ''}">${renderHeader()}<main class="mini-content">${content}</main>${renderDrawer()}<section class="order-panel" id="order-panel"></section>${detail ? '' : renderTabbar()}<div class="toast" id="toast" role="status"></div></div>`;
 }
 
 function renderDrawer() {
@@ -248,7 +291,7 @@ function renderDrawer() {
     <div class="drawer-backdrop open" id="drawer">
       <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="checkout-title">
         <div class="drawer-head"><div><h2 id="checkout-title">确认订单</h2><p class="drawer-kicker">付款成功后自动发卡</p></div><button class="close-button" data-action="close-checkout" title="关闭" aria-label="关闭">${icon.close}</button></div>
-        <div class="checkout-product"><img src="${esc(product.imageUrl)}" alt="" /><div><strong>${esc(product.title)}</strong><span>${esc(variant.name)} · ${money(variant.priceFen)}</span><span>库存 ${variant.stock} 份</span></div></div>
+        <div class="checkout-product"><img src="${productImage(product)}" alt="" /><div><strong>${esc(product.title)}</strong><span>${esc(variant.name)} · ${money(variant.priceFen)}</span><span>库存 ${variant.stock} 份</span></div></div>
         <label class="form-label">购买数量</label>
         <div class="quantity-control"><button data-action="quantity-minus" aria-label="减少数量">−</button><output>${quantity}</output><button data-action="quantity-plus" aria-label="增加数量">+</button></div>
         <label class="form-label">支付方式</label>
@@ -466,8 +509,24 @@ async function loadOrders(force = false) {
   }
 }
 
+function openDetail(productId) {
+  const product = findProduct(productId);
+  if (!product) return;
+  state.detailProductId = product.id;
+  history.pushState({}, '', `/products/${encodeURIComponent(product.slug)}`);
+  renderCatalog();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function closeDetail() {
+  state.detailProductId = null;
+  history.pushState({}, '', '/');
+  renderCatalog();
+}
+
 async function switchTab(tab) {
   if (!['shop', 'orders', 'profile'].includes(tab)) return;
+  state.detailProductId = null;
   clearInterval(state.orderPoll);
   stopPaymentTimer();
   state.activeTab = tab;
@@ -528,6 +587,8 @@ async function submitCheckout() {
     state.checkout = null;
     state.checkoutIdempotencyKey = null;
     state.orders = null;
+    state.detailProductId = null;
+    state.activeTab = 'orders';
     renderCatalog();
     showToast('支付订单已创建，请在当前页面扫码付款。');
     await openOrder(order.orderNo);
@@ -555,7 +616,23 @@ async function onClick(event) {
     renderCatalog();
     return;
   }
+  if (action === 'focus-search') {
+    document.querySelector('#catalog-search')?.focus();
+    return;
+  }
+  if (action === 'open-detail') {
+    return openDetail(actionElement.dataset.productId);
+  }
+  if (action === 'close-detail') {
+    return closeDetail();
+  }
+  if (action === 'select-detail-variant') {
+    state.selectedVariants.set(actionElement.dataset.productId, actionElement.dataset.variantId);
+    renderCatalog();
+    return;
+  }
   if (action === 'open-checkout') {
+    if (!state.publicConfig?.paymentReady) return showToast(state.publicConfig?.paymentConfigured ? '支付渠道已暂停，请稍后再试。' : '支付渠道正在配置，请稍后再试。');
     const product = findProduct(actionElement.dataset.productId);
     const variant = findVariant(product, state.selectedVariants.get(product.id));
     if (!variant || variant.stock < 1) return showToast('该规格库存不足。');
@@ -617,6 +694,22 @@ function onChange(event) {
   renderCatalog();
 }
 
+function onInput(event) {
+  if (!event.target.matches('#catalog-search')) return;
+  state.searchQuery = event.target.value;
+  const selectionStart = event.target.selectionStart;
+  renderCatalog();
+  const input = document.querySelector('#catalog-search');
+  input?.focus();
+  if (input && selectionStart !== null) input.setSelectionRange(selectionStart, selectionStart);
+}
+
+function routeProductSlug() {
+  const slug = location.pathname.match(/^\/products\/([^/]+)$/)?.[1];
+  if (!slug) return null;
+  return state.catalog.find((product) => product.slug === decodeURIComponent(slug))?.id ?? null;
+}
+
 async function initialize() {
   app.innerHTML = '<main class="page"><div class="empty">正在连接 XiuXian…</div></main>';
   try {
@@ -627,9 +720,14 @@ async function initialize() {
       api('/api/public-config'),
       api('/api/catalog'),
     ]);
-    for (const product of state.catalog) state.selectedVariants.set(product.id, product.variants[0]?.id);
+    for (const product of state.catalog) {
+      const initialVariant = product.variants.find((variant) => variant.stock > 0) ?? product.variants[0];
+      state.selectedVariants.set(product.id, initialVariant?.id);
+    }
     const existingOrder = location.pathname.match(/orders\/(XX\d{14}[A-F0-9]{8})/)?.[1];
+    const detailProductId = routeProductSlug();
     if (existingOrder) state.activeTab = 'orders';
+    if (detailProductId) state.detailProductId = detailProductId;
     renderCatalog();
     if (existingOrder) await openOrder(existingOrder, false);
   } catch (error) {
@@ -644,9 +742,21 @@ document.addEventListener('click', (event) => {
   });
 });
 document.addEventListener('change', onChange);
+document.addEventListener('input', onInput);
+window.addEventListener('popstate', () => {
+  const detailProductId = routeProductSlug();
+  state.detailProductId = detailProductId;
+  if (!detailProductId) state.activeTab = 'shop';
+  renderCatalog();
+});
 document.addEventListener('error', (event) => {
-  if (!event.target.matches('.profile-avatar img')) return;
-  event.target.closest('.profile-avatar')?.classList.remove('has-photo');
-  event.target.remove();
+  if (event.target.matches('.profile-avatar img')) {
+    event.target.closest('.profile-avatar')?.classList.remove('has-photo');
+    event.target.remove();
+    return;
+  }
+  if (event.target.matches('.product-image, .detail-cover img, .checkout-product img')) {
+    event.target.src = '/assets/stream-pass.png';
+  }
 }, true);
 void initialize();

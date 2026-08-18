@@ -10,6 +10,8 @@ const state = {
   users: [],
   webhookFailures: [],
   settings: null,
+  paymentNotice: null,
+  paymentSaving: false,
   version: null,
   editingProductId: null,
   message: '',
@@ -25,6 +27,7 @@ const icons = {
   external: '<svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9"/><path d="M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6"/></svg>',
   plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
   settings: '<svg viewBox="0 0 24 24"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="4"/></svg>',
+  payments: '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/></svg>',
 };
 
 function esc(value) {
@@ -115,16 +118,16 @@ async function loadViewData() {
       api('/api/admin/webhook-failures'),
     ]);
   }
-  if (state.view === 'settings') state.settings = await api('/api/admin/settings');
+  if (state.view === 'settings' || state.view === 'payments') state.settings = await api('/api/admin/settings');
 }
 
 function sidebar() {
-  const links = [['overview', '数据看板'], ['users', '用户管理'], ['products', '商品管理'], ['inventory', '卡密库存'], ['orders', '订单记录'], ['settings', '系统设置']];
-  return `<aside class="sidebar"><a href="/admin" class="admin-brand"><span class="admin-mark">XX</span><span>XiuXian<small>Operations console · v${esc(state.version ?? '1.0.7')}</small></span></a><span class="side-label">Workspace</span><nav class="side-nav">${links.map(([view, label]) => `<button class="${state.view === view ? 'active' : ''}" data-action="navigate" data-view="${view}">${icons[view]}${label}</button>`).join('')}</nav><div class="sidebar-foot"><strong>${esc(state.user?.username ?? state.user?.firstName ?? '管理员')}</strong>独立管理员账号<br/>数字商品交付系统 · v${esc(state.version ?? '1.0.7')}</div></aside>`;
+  const links = [['overview', '数据看板'], ['users', '用户管理'], ['products', '商品管理'], ['inventory', '卡密库存'], ['orders', '订单记录'], ['payments', '支付渠道'], ['settings', '系统设置']];
+  return `<aside class="sidebar"><a href="/admin" class="admin-brand"><span class="admin-mark">XX</span><span>XiuXian<small>Operations console · v${esc(state.version ?? '1.0.8')}</small></span></a><span class="side-label">Workspace</span><nav class="side-nav">${links.map(([view, label]) => `<button class="${state.view === view ? 'active' : ''}" data-action="navigate" data-view="${view}">${icons[view]}${label}</button>`).join('')}</nav><div class="sidebar-foot"><strong>${esc(state.user?.username ?? state.user?.firstName ?? '管理员')}</strong>独立管理员账号<br/>数字商品交付系统 · v${esc(state.version ?? '1.0.8')}</div></aside>`;
 }
 
 function topbar() {
-  const titles = { overview: ['数据看板', '今天的经营概况与库存健康度'], users: ['用户管理', 'Telegram 买家资料与账号状态'], products: ['商品管理', '管理分类、商品和销售规格'], inventory: ['卡密库存', '批次导入与可售库存检查'], orders: ['订单记录', '支付状态和自动发卡结果'], settings: ['系统设置', '管理员账号与 Telegram Bot 配置'] };
+  const titles = { overview: ['数据看板', '今天的经营概况与库存健康度'], users: ['用户管理', 'Telegram 买家资料与账号状态'], products: ['商品管理', '管理分类、商品和销售规格'], inventory: ['卡密库存', '批次导入与可售库存检查'], orders: ['订单记录', '支付状态和自动发卡结果'], payments: ['支付渠道', '配置收款渠道、网络和回调密钥'], settings: ['系统设置', '管理员账号与 Telegram Bot 配置'] };
   const [title, subtitle] = titles[state.view];
   return `<header class="main-top"><div><h1>${title}</h1><p>${subtitle}</p></div><div class="top-actions"><a class="outline-button" href="/" title="打开买家端">${icons.external} 买家端</a><button class="outline-button" data-action="refresh">刷新</button><button class="outline-button" data-action="logout">退出</button></div></header>`;
 }
@@ -213,6 +216,31 @@ function ordersView() {
   <div class="section-bar"><div><h2>支付回调异常</h2><p>验签成功但业务校验未通过的 DujiaoPay 事件</p></div></div>${failureTable}`;
 }
 
+function paymentsView() {
+  const settings = state.settings ?? {};
+  const ready = settings.paymentReady;
+  const stateLabel = ready ? '已启用' : settings.paymentConfigured ? (settings.paymentEnabled ? '待配置' : '已停用') : '待配置';
+  const stateCopy = ready ? '支付配置已启用，买家可以创建支付订单。可使用“测试连接”验证 DujiaoPay 凭据。' : settings.paymentConfigured && !settings.paymentEnabled ? '已停止接受新订单，历史支付单仍可继续处理。' : '渠道尚未完成配置，当前不会接受买家订单。';
+  const sourceLabel = { database: '后台数据库', environment: '环境变量', none: '尚未配置' }[settings.paymentSource] ?? '尚未配置';
+  const updatedAt = settings.paymentUpdatedAt ? ` · 最近更新 ${new Date(settings.paymentUpdatedAt).toLocaleString('zh-CN')}` : '';
+  return `<div class="payment-console">
+    <div class="payment-hero ${ready ? 'ready' : 'offline'}"><div><span class="payment-eyebrow">PAYMENT CHANNEL</span><h2>DujiaoPay 收款渠道</h2><p>${stateCopy}</p></div><span class="payment-state"><i></i>${stateLabel}</span></div>
+    ${state.paymentNotice ? `<div class="notice ${state.paymentNotice.type === 'error' ? 'error' : ''}">${esc(state.paymentNotice.text)}</div>` : ''}
+    <section class="form-panel payment-panel"><div class="panel-heading"><div><h3>渠道参数</h3><p>来源：${sourceLabel}${updatedAt}。敏感密钥仅在服务端加密保存，页面不会回显明文。</p></div><span class="status ${ready ? '' : 'archived'}">${ready ? '可用' : '不可用'}</span></div>
+      <div class="field"><label>渠道状态</label><select name="payment-enabled"><option value="true" ${settings.paymentEnabled ? 'selected' : ''}>启用收款</option><option value="false" ${!settings.paymentEnabled ? 'selected' : ''}>暂时停用</option></select></div>
+      <div class="field"><label>API 地址</label><input name="payment-base-url" value="${esc(settings.paymentBaseUrl ?? 'https://www.dujiaopay.com')}" placeholder="https://www.dujiaopay.com" /></div>
+      <div class="field"><label>Key ID</label><input name="payment-key-id" placeholder="${esc(settings.paymentKeyId ? `当前 ${settings.paymentKeyId}` : '填入 DujiaoPay Key ID')}" autocomplete="off" /></div>
+      <div class="field"><label>API Secret</label><input name="payment-secret" type="password" placeholder="${settings.paymentSecretConfigured ? '已配置，留空保持不变' : '填入 API Secret'}" autocomplete="new-password" /></div>
+      <div class="field"><label>Webhook Secret</label><input name="payment-webhook-secret" type="password" placeholder="${settings.paymentWebhookSecretConfigured ? '已配置，留空保持不变' : '填入 Webhook Secret'}" autocomplete="new-password" /></div>
+      <div class="field"><label>支付网络</label><select name="payment-chain"><option value="tron" ${settings.paymentChain === 'tron' ? 'selected' : ''}>TRON</option><option value="bsc" ${settings.paymentChain === 'bsc' ? 'selected' : ''}>BSC</option><option value="eth" ${settings.paymentChain === 'eth' ? 'selected' : ''}>Ethereum</option></select></div>
+      <div class="field"><label>支付币种 ID</label><input name="payment-token-id" value="${esc(settings.paymentTokenId ?? 'tron-usdt')}" placeholder="tron-usdt" /></div>
+      <div class="field"><label>订单有效期（分钟）</label><input name="payment-ttl" type="number" min="5" max="60" value="${esc(settings.paymentTtlMinutes ?? 15)}" /></div>
+      <div class="field full"><div class="payment-webhook"><span>Webhook 地址</span><code>${esc(`${location.origin}/api/webhooks/dujiaopay`)}</code><button class="copy-button" data-action="copy-payment-url" data-copy="${esc(`${location.origin}/api/webhooks/dujiaopay`)}">复制</button></div></div>
+      <div class="form-actions"><button class="outline-button" data-action="test-payment" ${settings.paymentConfigured && !state.paymentSaving ? '' : 'disabled'}>测试连接</button><button class="solid-button" data-action="save-payment" ${state.paymentSaving ? 'disabled' : ''}>${state.paymentSaving ? '正在保存…' : '保存支付配置'}</button></div>
+    </section>
+  </div>`;
+}
+
 function settingsView() {
   const settings = state.settings ?? {};
   return `<div class="settings-grid">
@@ -222,7 +250,7 @@ function settingsView() {
 }
 
 function render() {
-  const views = { overview: overviewView, users: usersView, products: productsView, inventory: inventoryView, orders: ordersView, settings: settingsView };
+  const views = { overview: overviewView, users: usersView, products: productsView, inventory: inventoryView, orders: ordersView, payments: paymentsView, settings: settingsView };
   root.innerHTML = `<div class="admin-shell">${sidebar()}<section class="main">${topbar()}<main class="content">${state.message ? `<div class="notice error" style="margin-bottom:15px">${esc(state.message)}</div>` : ''}${views[state.view]()}</main></section><div class="toast" id="toast"></div></div>`;
   requestAnimationFrame(() => {
     const active = document.querySelector('.side-nav button.active');
@@ -257,7 +285,7 @@ async function onClick(event) {
       root.innerHTML = loginScreen();
       return;
     }
-    if (action === 'navigate') { state.view = element.dataset.view; if (state.view !== 'settings') state.settingsNotice = null; await refresh(); return; }
+    if (action === 'navigate') { state.view = element.dataset.view; if (state.view !== 'settings') state.settingsNotice = null; if (state.view !== 'payments') state.paymentNotice = null; await refresh(); return; }
     if (action === 'refresh') { await refresh(); toast('数据已刷新。'); return; }
     if (action === 'toggle-panel') { const panel = document.querySelector(`#${element.dataset.panel}`); if (panel) panel.hidden = !panel.hidden; return; }
     if (action === 'edit-product') { state.editingProductId = element.dataset.id; render(); document.querySelector('#product-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
@@ -358,6 +386,42 @@ async function onClick(event) {
       await refresh();
       return;
     }
+    if (action === 'save-payment') {
+      const form = document.querySelector('.payment-panel');
+      const body = {
+        payment: {
+          enabled: form.querySelector('[name="payment-enabled"]').value === 'true',
+          baseUrl: form.querySelector('[name="payment-base-url"]').value.trim(),
+          keyId: form.querySelector('[name="payment-key-id"]').value.trim(),
+          secret: form.querySelector('[name="payment-secret"]').value,
+          webhookSecret: form.querySelector('[name="payment-webhook-secret"]').value,
+          chain: form.querySelector('[name="payment-chain"]').value,
+          tokenId: form.querySelector('[name="payment-token-id"]').value.trim(),
+          ttlMinutes: Number(form.querySelector('[name="payment-ttl"]').value),
+        },
+      };
+      state.paymentSaving = true;
+      state.paymentNotice = { type: 'info', text: '正在保存支付配置…' };
+      render();
+      const result = await api('/api/admin/settings', { method: 'PATCH', body: JSON.stringify(body) });
+      state.paymentSaving = false;
+      state.paymentNotice = { type: 'success', text: `支付配置已保存并立即生效（${new Date(result.paymentSavedAt ?? Date.now()).toLocaleString('zh-CN')}）。${result.paymentReady ? '渠道已就绪。' : '当前仍未就绪，请检查密钥或保持停用。'}` };
+      toast('支付配置保存成功。');
+      await refresh();
+      return;
+    }
+    if (action === 'test-payment') {
+      const result = await api('/api/admin/settings/test-payment', { method: 'POST' });
+      state.paymentNotice = { type: 'success', text: `DujiaoPay 连接成功：${result.merchantId ?? result.projectId ?? '凭据有效'}。` };
+      toast('支付渠道连接成功。');
+      render();
+      return;
+    }
+    if (action === 'copy-payment-url') {
+      await navigator.clipboard?.writeText(element.dataset.copy ?? '');
+      toast('Webhook 地址已复制。');
+      return;
+    }
     if (action === 'save-admin-account') {
       const username = document.querySelector('[name="admin-username"]').value.trim();
       const password = document.querySelector('[name="admin-password"]').value;
@@ -378,7 +442,12 @@ async function onClick(event) {
       return;
     }
     if (state.view === 'settings') state.settingsNotice = { type: 'error', text: error instanceof Error ? error.message : '保存失败，请稍后重试。' };
-    state.message = error instanceof Error ? error.message : '操作失败，请稍后重试。';
+    if (state.view === 'payments') {
+      state.paymentSaving = false;
+      state.paymentNotice = { type: 'error', text: error instanceof Error ? error.message : '支付渠道操作失败，请稍后重试。' };
+    } else {
+      state.message = error instanceof Error ? error.message : '操作失败，请稍后重试。';
+    }
     render();
   }
 }

@@ -216,3 +216,24 @@ td code { font: 11px ui-monospace, monospace; }
 .danger-button { border-color: #efc4ba; color: #b4533f; }
 .danger-button:hover { border-color: #e66e54; color: #fff; background: #e66e54; }
 @media (max-width: 680px) { .user-section-bar .user-search { width: 100%; } }
+
+/* Payment channel console */
+.payment-console { display: grid; gap: 16px; max-width: 980px; }
+.payment-hero { display: flex; align-items: end; justify-content: space-between; gap: 20px; min-height: 150px; padding: 25px 28px; border-radius: 18px; color: #fff; background: #2f56b7; box-shadow: 0 14px 30px rgba(38,73,155,.15); }
+.payment-hero.offline { background: #4f607d; }
+.payment-eyebrow { color: #b8caff; font: 700 10px ui-monospace, monospace; letter-spacing: .14em; }
+.payment-hero h2 { margin: 9px 0 7px; font-size: 24px; }
+.payment-hero p { margin: 0; color: #d4ddf2; font-size: 12px; }
+.payment-state { display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; padding: 8px 11px; border-radius: 999px; color: #dff8ec; background: rgba(37,163,122,.22); font-size: 11px; font-weight: 800; }
+.payment-state i { width: 7px; height: 7px; border-radius: 50%; background: #5fe0aa; }
+.payment-hero.offline .payment-state { color: #fff0cf; background: rgba(225,169,62,.2); }
+.payment-hero.offline .payment-state i { background: #f0bd56; }
+.payment-panel { grid-template-columns: 1fr 1fr; }
+.panel-heading { grid-column: 1 / -1; display: flex; align-items: start; justify-content: space-between; gap: 18px; }
+.panel-heading h3 { margin: 0; }
+.panel-heading p { margin: 6px 0 0; color: var(--muted); font-size: 11px; }
+.payment-webhook { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 9px; background: #f8faff; }
+.payment-webhook span { flex: 0 0 auto; color: var(--muted); font-size: 11px; }
+.payment-webhook code { min-width: 0; overflow: hidden; flex: 1; color: var(--ink); font: 10px ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.payment-panel .solid-button:disabled, .payment-panel .outline-button:disabled { cursor: not-allowed; opacity: .45; }
+@media (max-width: 680px) { .payment-hero { align-items: start; flex-direction: column; min-height: 0; padding: 21px; } .payment-panel { grid-template-columns: 1fr; } .panel-heading { grid-column: auto; } .payment-webhook { align-items: start; flex-wrap: wrap; } .payment-webhook code { flex-basis: 100%; order: 3; } }

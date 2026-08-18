@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { normalizeDujiaoPayConfig, validateDujiaoPayConfig } from '../payment/config.js';
 
 function loadEnvFile(filename) {
   if (!fs.existsSync(filename)) return;
@@ -56,14 +57,15 @@ export function loadConfig(rootDirectory = process.cwd()) {
     trustProxy: /^(1|true|yes)$/i.test(process.env.TRUST_PROXY ?? ''),
     paymentProvider,
     paymentTtlMinutes: Number(process.env.ORDER_PAYMENT_TTL_MINUTES ?? 15),
-    dujiaopay: {
-      baseUrl: process.env.DUJIAOPAY_BASE_URL ?? 'https://www.dujiaopay.com',
-      keyId: process.env.DUJIAOPAY_KEY_ID ?? '',
-      secret: process.env.DUJIAOPAY_SECRET ?? '',
-      webhookSecret: process.env.DUJIAOPAY_WEBHOOK_SECRET ?? '',
-      chain: process.env.DUJIAOPAY_CHAIN ?? 'tron',
-      tokenId: process.env.DUJIAOPAY_TOKEN_ID ?? 'tron-usdt',
-    },
+    dujiaopay: normalizeDujiaoPayConfig({
+      baseUrl: process.env.DUJIAOPAY_BASE_URL,
+      keyId: process.env.DUJIAOPAY_KEY_ID,
+      secret: process.env.DUJIAOPAY_SECRET,
+      webhookSecret: process.env.DUJIAOPAY_WEBHOOK_SECRET,
+      chain: process.env.DUJIAOPAY_CHAIN,
+      tokenId: process.env.DUJIAOPAY_TOKEN_ID,
+      ttlMinutes: process.env.ORDER_PAYMENT_TTL_MINUTES,
+    }),
   };
 
   if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65535) {
@@ -78,8 +80,11 @@ export function loadConfig(rootDirectory = process.cwd()) {
   if (config.isProduction && appUrl.protocol !== 'https:') {
     throw new Error('APP_ORIGIN must use HTTPS in production.');
   }
-  if (!Number.isInteger(config.paymentTtlMinutes) || config.paymentTtlMinutes < 5 || config.paymentTtlMinutes > 60) {
-    throw new Error('ORDER_PAYMENT_TTL_MINUTES must be between 5 and 60.');
+  try {
+    config.dujiaopay = validateDujiaoPayConfig(config.dujiaopay, { production: config.isProduction });
+    config.paymentTtlMinutes = config.dujiaopay.ttlMinutes;
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : 'DujiaoPay configuration is invalid.');
   }
   if (config.supportUrl) {
     try {
@@ -87,25 +92,6 @@ export function loadConfig(rootDirectory = process.cwd()) {
       if (!['https:', 'tg:'].includes(supportUrl.protocol)) throw new Error('unsupported protocol');
     } catch {
       throw new Error('SUPPORT_URL must be a valid https:// or tg:// URL.');
-    }
-  }
-  {
-    let dujiaoPayUrl;
-    try {
-      dujiaoPayUrl = new URL(config.dujiaopay.baseUrl);
-    } catch {
-      throw new Error('DUJIAOPAY_BASE_URL must be an absolute URL.');
-    }
-    if (config.isProduction && dujiaoPayUrl.origin !== 'https://www.dujiaopay.com') {
-      throw new Error('DUJIAOPAY_BASE_URL must be exactly https://www.dujiaopay.com in production.');
-    }
-    const requiredDujiaoPayFields = [
-      ['DUJIAOPAY_KEY_ID', config.dujiaopay.keyId],
-      ['DUJIAOPAY_SECRET', config.dujiaopay.secret],
-      ['DUJIAOPAY_WEBHOOK_SECRET', config.dujiaopay.webhookSecret],
-    ];
-    for (const [name, value] of requiredDujiaoPayFields) {
-      if (!value) throw new Error(`${name} is required.`);
     }
   }
   return config;

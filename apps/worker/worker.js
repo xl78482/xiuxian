@@ -11,6 +11,7 @@ async function tick() {
   if (stopping || ticking) return;
   ticking = true;
   try {
+    runtime.reloadPaymentConfig();
     const recovered = runtime.commerce.recoverStaleFulfillmentJobs();
     const fulfilled = runtime.commerce.processJobs(20);
     const reconciled = await runtime.commerce.reconcileDuePayments(30);

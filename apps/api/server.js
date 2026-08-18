@@ -8,10 +8,11 @@ import { createRuntime } from '../../packages/core/runtime.js';
 import { AuthError, createSessionToken, verifySessionToken, verifyTelegramInitData } from '../../packages/core/crypto.js';
 import { DomainError } from '../../packages/core/commerce.js';
 import { PaymentProviderError } from '../../packages/payment/index.js';
+import { maskSecret } from '../../packages/payment/config.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const runtime = createRuntime(root);
-const { config, commerce, paymentProvider, settings, adminAccounts } = runtime;
+const { config, commerce, paymentProvider, settings, adminAccounts, refreshPaymentConfig } = runtime;
 
 const requestCounts = new Map();
 let lastRateLimitCleanup = 0;
@@ -209,6 +210,56 @@ function telegramBotTokenStatus() {
   };
 }
 
+function paymentConfigStatus() {
+  const payment = config.dujiaopay;
+  return {
+    paymentProvider: 'dujiaopay',
+    paymentEnabled: Boolean(payment.enabled),
+    paymentConfigured: paymentProvider.isConfigured(),
+    paymentSource: settings.getPaymentConfigMetadata().configured ? 'database' : paymentProvider.isConfigured() ? 'environment' : 'none',
+    paymentReady: paymentProvider.isEnabled(),
+    paymentBaseUrl: payment.baseUrl,
+    paymentKeyId: maskSecret(payment.keyId),
+    paymentSecretConfigured: Boolean(payment.secret),
+    paymentWebhookSecretConfigured: Boolean(payment.webhookSecret),
+    paymentChain: payment.chain,
+    paymentTokenId: payment.tokenId,
+    paymentTtlMinutes: payment.ttlMinutes,
+    paymentUpdatedAt: settings.getPaymentConfigMetadata().updatedAt,
+  };
+}
+
+function paymentConfigInput(body) {
+  const current = config.dujiaopay;
+  const next = {
+    enabled: body.enabled,
+    baseUrl: body.baseUrl || current.baseUrl,
+    keyId: body.keyId || current.keyId,
+    secret: body.secret || current.secret,
+    webhookSecret: body.webhookSecret || current.webhookSecret,
+    chain: body.chain || current.chain,
+    tokenId: body.tokenId || current.tokenId,
+    ttlMinutes: body.ttlMinutes === '' ? undefined : body.ttlMinutes,
+  };
+  return next;
+}
+
+function syncPaymentConfig() {
+  runtime.reloadPaymentConfig();
+}
+
+function assertPaymentReady() {
+  if (!paymentProvider.isEnabled()) {
+    throw new DomainError('支付渠道尚未配置完成，请联系管理员。', 'payment_not_configured', 503);
+  }
+}
+
+function assertPaymentConfigured() {
+  if (!paymentProvider.isConfigured()) {
+    throw new DomainError('支付渠道凭据尚未配置完成。', 'payment_not_configured', 503);
+  }
+}
+
 function telegramIdentityFromHeader(request) {
   const initData = request.headers['x-telegram-init-data'];
   if (typeof initData !== 'string' || !initData.trim() || initData.length > 8192) return null;
@@ -254,6 +305,7 @@ async function handleApi(request, response, pathname) {
   const method = request.method ?? 'GET';
 
   if (method === 'GET' && pathname === '/api/health') {
+    syncPaymentConfig();
     const database = runtime.db.prepare('SELECT MAX(version) AS schemaVersion FROM schema_migrations').get();
     return sendJson(response, 200, {
       ok: true,
@@ -261,6 +313,8 @@ async function handleApi(request, response, pathname) {
       database: 'ok',
       schemaVersion: Number(database.schemaVersion ?? 0),
       provider: paymentProvider.name,
+      paymentConfigured: paymentProvider.isConfigured(),
+      paymentReady: paymentProvider.isEnabled(),
       environment: config.nodeEnv,
     });
   }
@@ -288,26 +342,59 @@ async function handleApi(request, response, pathname) {
 
   if (method === 'GET' && pathname === '/api/admin/settings') {
     const user = requireAdmin(request);
+    syncPaymentConfig();
     return sendJson(response, 200, {
       username: user.username,
       ...telegramBotTokenStatus(),
+      ...paymentConfigStatus(),
     });
   }
 
   if (method === 'PATCH' && pathname === '/api/admin/settings') {
     const user = requireAdmin(request);
+    syncPaymentConfig();
     const body = assertObject(await readJson(request));
+    let telegramSavedAt = null;
+    let paymentSavedAt = null;
     if (body.telegramBotToken !== undefined) {
       if (typeof body.telegramBotToken !== 'string' || !/^\d+:[A-Za-z0-9_-]{20,}$/.test(body.telegramBotToken.trim())) {
         throw new DomainError('Telegram Bot Token 格式无效。', 'invalid_request', 422);
       }
       const telegramBotToken = body.telegramBotToken.trim();
-      const savedAt = settings.setTelegramBotToken(telegramBotToken);
+      telegramSavedAt = settings.setTelegramBotToken(telegramBotToken);
       config.telegramBotToken = telegramBotToken;
       commerce.audit(user.id, 'settings.telegram_bot_token.updated', 'app_setting', 'telegram_bot_token', { configured: true });
-      return sendJson(response, 200, { ...telegramBotTokenStatus(), savedAt });
     }
-    return sendJson(response, 200, { ...telegramBotTokenStatus(), savedAt: null });
+    const paymentBody = body.payment && typeof body.payment === 'object' && !Array.isArray(body.payment) ? body.payment : body;
+    const paymentKeys = ['enabled', 'baseUrl', 'keyId', 'secret', 'webhookSecret', 'chain', 'tokenId', 'ttlMinutes'];
+    const hasPaymentUpdate = body.payment !== undefined || paymentKeys.some((key) => Object.prototype.hasOwnProperty.call(body, key));
+    if (hasPaymentUpdate) {
+      try {
+        const nextPaymentConfig = refreshPaymentConfig(paymentConfigInput(paymentBody));
+        paymentSavedAt = settings.setPaymentConfig(nextPaymentConfig);
+        commerce.audit(user.id, 'settings.payment.updated', 'app_setting', 'payment_config', {
+          provider: 'dujiaopay',
+          enabled: nextPaymentConfig.enabled,
+        });
+      } catch (error) {
+        throw new DomainError(error instanceof Error ? error.message : '支付配置无效。', 'invalid_payment_config', 422);
+      }
+    }
+    return sendJson(response, 200, {
+      ...telegramBotTokenStatus(),
+      ...paymentConfigStatus(),
+      savedAt: telegramSavedAt ?? paymentSavedAt,
+      telegramSavedAt,
+      paymentSavedAt,
+    });
+  }
+
+  if (method === 'POST' && pathname === '/api/admin/settings/test-payment') {
+    requireAdmin(request);
+    syncPaymentConfig();
+    assertPaymentConfigured();
+    const identity = await paymentProvider.whoAmI();
+    return sendJson(response, 200, { ok: true, provider: paymentProvider.name, ...identity });
   }
 
   if (method === 'PATCH' && pathname === '/api/admin/account') {
@@ -334,12 +421,16 @@ async function handleApi(request, response, pathname) {
   }
 
   if (method === 'GET' && pathname === '/api/public-config') {
+    syncPaymentConfig();
     return sendJson(response, 200, {
       version: config.appVersion,
       supportUrl: config.supportUrl || null,
       paymentProvider: paymentProvider.name,
-      paymentChain: paymentProvider.name === 'dujiaopay' ? config.dujiaopay.chain : 'tron',
-      paymentToken: paymentProvider.name === 'dujiaopay' ? config.dujiaopay.tokenId : 'tron-usdt',
+      paymentConfigured: paymentProvider.isConfigured(),
+      paymentReady: paymentProvider.isEnabled(),
+      paymentEnabled: Boolean(config.dujiaopay.enabled),
+      paymentChain: config.dujiaopay.chain,
+      paymentToken: config.dujiaopay.tokenId,
     });
   }
 
@@ -350,6 +441,8 @@ async function handleApi(request, response, pathname) {
   if (method === 'POST' && pathname === '/api/orders') {
     if (!checkRateLimit(request, response, 20)) return;
     const user = requireUser(request);
+    syncPaymentConfig();
+    assertPaymentReady();
     const body = assertObject(await readJson(request));
     const order = await commerce.createOrder(user, {
       variantId: body.variantId,
@@ -376,7 +469,8 @@ async function handleApi(request, response, pathname) {
   }
 
   if (method === 'POST' && pathname === '/api/webhooks/dujiaopay') {
-    if (paymentProvider.name !== 'dujiaopay') throw new DomainError('DujiaoPay 未启用。', 'not_found', 404);
+    syncPaymentConfig();
+    assertPaymentConfigured();
     const event = paymentProvider.verifyWebhook(await readBody(request), request.headers);
     const result = commerce.processWebhook(event);
     const status = result.processed
@@ -476,7 +570,9 @@ function serveApplication(request, response, pathname) {
   if (
     pathname === '/' ||
     pathname === '/index.html' ||
-    pathname.startsWith('/orders/')
+    pathname === '/orders/' ||
+    pathname.startsWith('/orders/') ||
+    pathname.startsWith('/products/')
   ) {
     return serveFile(response, buyerDirectory, 'index.html');
   }
