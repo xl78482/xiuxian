@@ -1845,3 +1845,19 @@ html, body, .native-shell, .app-shell {
    v1.0.26 — 移除首页顶部支付状态公告条
    ========================================================= */
 .shop-view .category-strip { padding-top: 8px; }
+
+/* =========================================================
+   v1.0.30 — Telegram 顶部内容安全区
+   使用 Telegram WebApp 官方 contentSafeAreaInset，避免原生关闭栏遮挡标题。
+   ========================================================= */
+:root { --mini-content-safe-area-top: 0px; }
+.mini-header {
+  --mini-header-safe-top: max(
+    env(safe-area-inset-top, 0px),
+    var(--tg-safe-area-inset-top, 0px),
+    var(--tg-content-safe-area-inset-top, 0px),
+    var(--mini-content-safe-area-top, 0px)
+  );
+  min-height: calc(76px + var(--mini-header-safe-top));
+  padding-top: calc(14px + var(--mini-header-safe-top));
+}

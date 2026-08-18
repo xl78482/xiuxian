@@ -203,6 +203,21 @@ function setTelegramTheme() {
   webApp.setBackgroundColor?.('#f3f5fb');
   const metaThemeColor = document.querySelector('meta[name="theme-color"]');
   if (metaThemeColor) metaThemeColor.setAttribute('content', '#f3f5fb');
+  syncTelegramSafeArea();
+  webApp.onEvent?.('contentSafeAreaChanged', syncTelegramSafeArea);
+  webApp.onEvent?.('safeAreaChanged', syncTelegramSafeArea);
+  webApp.onEvent?.('viewportChanged', syncTelegramSafeArea);
+  webApp.onEvent?.('fullscreenChanged', syncTelegramSafeArea);
+}
+
+// Telegram 顶部控制条会覆盖 WebView 内容，使用官方 contentSafeAreaInset 动态避让。
+function syncTelegramSafeArea() {
+  const webApp = window.Telegram?.WebApp;
+  if (!webApp) return;
+  const top = Number(webApp.contentSafeAreaInset?.top);
+  if (Number.isFinite(top) && top >= 0) {
+    document.documentElement.style.setProperty('--mini-content-safe-area-top', `${top}px`);
+  }
 }
 
 // v1.0.28 全屏模式（自动触发版）：Telegram 官方 requestFullscreen API。
@@ -456,7 +471,7 @@ function profileView() {
     <div class="native-menu">
       <button data-action="switch-tab" data-tab="orders"><span>${icon.receipt}<b>我的订单</b></span>${icon.chevron}</button>
       ${state.publicConfig?.supportUrl ? `<button data-action="open-support"><span>${icon.support}<b>联系售后</b></span>${icon.chevron}</button>` : ''}
-      <div><span>${icon.shield}<b>当前版本</b></span><small>v${esc(state.publicConfig?.version ?? '1.0.19')}</small></div>
+      <div><span>${icon.shield}<b>当前版本</b></span><small>v${esc(state.publicConfig?.version ?? '1.0.30')}</small></div>
     </div>
   </section>`;
 }
