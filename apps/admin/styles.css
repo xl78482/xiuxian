@@ -535,3 +535,40 @@ td code { color: var(--teal); }
 
 /* —— 用户头像 —— */
 .admin-user-avatar { background: var(--dash-grad); box-shadow: 0 4px 12px rgba(79,107,248,.3); }
+
+/* =========================================================
+   v1.0.29 Admin hardening — 后台现有功能完善
+   订单状态筛选 + 分类编辑/启停 + 余额流水 + 导入统计
+   ========================================================= */
+
+.order-filters {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.filter-pill {
+  min-height: 30px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform .15s ease, background .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+.filter-pill:active { transform: scale(.95); }
+.filter-pill.active {
+  border-color: transparent;
+  background: var(--dash-grad);
+  color: #fff;
+  box-shadow: 0 5px 14px rgba(79,107,248,.28);
+}
+.balance-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.debit { color: var(--dash-danger); }

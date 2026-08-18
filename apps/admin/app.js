@@ -12,7 +12,10 @@ const state = {
   settings: null,
   paymentNotice: null,
   paymentSaving: false,
+  ordersFilter: 'all',
   balanceTarget: null,
+  balanceEntriesTarget: null,
+  categoryEditor: null,
   version: null,
   editingProductId: null,
   message: '',
@@ -114,8 +117,9 @@ async function loadViewData() {
   }
   if (state.view === 'users') state.users = await api('/api/admin/users');
   if (state.view === 'orders') {
+    const filter = state.ordersFilter === 'all' ? '' : `?statuses=${state.ordersFilter}`;
     [state.orders, state.webhookFailures] = await Promise.all([
-      api('/api/admin/orders'),
+      api(`/api/admin/orders${filter}`),
       api('/api/admin/webhook-failures'),
     ]);
   }
@@ -158,10 +162,23 @@ function usersView() {
     const username = user.username ? `@${user.username}` : '未设置用户名';
     const search = `${displayName} ${username} ${user.telegramId}`.toLowerCase();
     const initial = displayName.slice(0, 1).toUpperCase();
-    return `<tr data-user-row data-search="${esc(search)}"><td><div class="admin-user"><div class="admin-user-avatar"><span>${esc(initial)}</span>${user.photoUrl ? `<img src="${esc(user.photoUrl)}" alt="" referrerpolicy="no-referrer" />` : ''}</div><div><strong>${esc(displayName)}</strong><small>${esc(username)}</small></div></div></td><td><code>${esc(user.telegramId)}</code><small>${esc(user.languageCode ?? '—')}</small></td><td><span class="status ${user.isActive ? '' : 'archived'}">${user.isActive ? '正常' : '已停用'}</span></td><td>${user.orderCount}<small>已支付 ${user.paidOrderCount}</small></td><td>${money(user.spentFen)}</td><td><div class="balance-cell"><strong>${money(user.balanceFen ?? 0)}</strong><button class="outline-button" data-action="adjust-user-balance" data-id="${esc(user.id)}" data-name="${esc(displayName)}" data-balance="${user.balanceFen ?? 0}">调整</button></div></td><td>${new Date(user.createdAt).toLocaleDateString('zh-CN')}<small>${user.lastOrderAt ? `最近下单 ${new Date(user.lastOrderAt).toLocaleDateString('zh-CN')}` : '暂无订单'}</small></td><td><button class="outline-button ${user.isActive ? 'danger-button' : ''}" data-action="toggle-user-status" data-id="${esc(user.id)}" data-active="${user.isActive ? 'false' : 'true'}">${user.isActive ? '停用' : '恢复'}</button></td></tr>`;
+    return `<tr data-user-row data-search="${esc(search)}"><td><div class="admin-user"><div class="admin-user-avatar"><span>${esc(initial)}</span>${user.photoUrl ? `<img src="${esc(user.photoUrl)}" alt="" referrerpolicy="no-referrer" />` : ''}</div><div><strong>${esc(displayName)}</strong><small>${esc(username)}</small></div></div></td><td><code>${esc(user.telegramId)}</code><small>${esc(user.languageCode ?? '—')}</small></td><td><span class="status ${user.isActive ? '' : 'archived'}">${user.isActive ? '正常' : '已停用'}</span></td><td>${user.orderCount}<small>已支付 ${user.paidOrderCount}</small></td><td>${money(user.spentFen)}</td><td><div class="balance-cell"><strong>${money(user.balanceFen ?? 0)}</strong><button class="outline-button" data-action="adjust-user-balance" data-id="${esc(user.id)}" data-name="${esc(displayName)}" data-balance="${user.balanceFen ?? 0}">调整</button></div></td><td>${new Date(user.createdAt).toLocaleDateString('zh-CN')}<small>${user.lastOrderAt ? `最近下单 ${new Date(user.lastOrderAt).toLocaleDateString('zh-CN')}` : '暂无订单'}</small></td><td><div class="row-actions"><button class="outline-button" data-action="show-balance-entries" data-id="${esc(user.id)}" data-name="${esc(displayName)}">流水</button><button class="outline-button ${user.isActive ? 'danger-button' : ''}" data-action="toggle-user-status" data-id="${esc(user.id)}" data-active="${user.isActive ? 'false' : 'true'}">${user.isActive ? '停用' : '恢复'}</button></div></td></tr>`;
   }).join('');
   return `<div class="section-bar user-section-bar"><div><h2>Telegram 买家</h2><p>共 <span data-user-count>${state.users.length}</span> 位用户，可按姓名、用户名或 ID 搜索</p></div><input class="user-search" type="search" placeholder="搜索用户" aria-label="搜索用户" data-user-search /></div>
-    ${state.users.length ? `<div class="table-wrap"><table><thead><tr><th>用户</th><th>Telegram ID</th><th>状态</th><th>订单</th><th>累计消费</th><th>余额</th><th>加入时间</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="empty">暂无 Telegram 买家。</div>'}${balanceModal()}`;
+    ${state.users.length ? `<div class="table-wrap"><table><thead><tr><th>用户</th><th>Telegram ID</th><th>状态</th><th>订单</th><th>累计消费</th><th>余额</th><th>加入时间</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="empty">暂无 Telegram 买家。</div>'}${balanceModal()}${balanceEntriesModal()}`;
+}
+function balanceEntriesModal() {
+  const target = state.balanceEntriesTarget;
+  if (!target) return '';
+  const entries = target.entries ?? [];
+  const rows = entries.length
+    ? entries.map((entry) => {
+      const sign = entry.changeFen >= 0 ? '+' : '';
+      const tone = entry.changeFen >= 0 ? '' : 'debit';
+      return `<tr><td><strong class="${tone}">${sign}${money(entry.changeFen)}</strong></td><td>${money(entry.balanceAfterFen)}</td><td>${esc(entry.kindLabel ?? entry.kind)}</td><td><small>${esc(entry.memo || '—')}</small></td><td>${new Date(entry.createdAt).toLocaleString('zh-CN')}</td></tr>`;
+    }).join('')
+    : '<tr><td colspan="5"><div class="empty">暂无余额流水。</div></td></tr>';
+  return `<div class="modal-backdrop" data-action="close-balance-entries-modal"><div class="modal-card" data-stop-close><h3>余额流水</h3><p class="settings-copy">用户 <strong>${esc(target.name)}</strong> 的余额变动记录（最近 50 条）</p><div class="table-wrap" style="max-height:320px;overflow:auto"><table><thead><tr><th>变动</th><th>变动后余额</th><th>类型</th><th>备注</th><th>时间</th></tr></thead><tbody>${rows}</tbody></table></div><div class="form-actions"><button class="outline-button" data-action="close-balance-entries-modal">关闭</button></div></div></div>`;
 }
 function balanceModal() {
   if (!state.balanceTarget) return '';
@@ -190,11 +207,16 @@ function productsView() {
   <div class="section-bar"><div><h2>全部分类</h2><p>共 ${state.categories.length} 个分类</p></div></div>
   <div class="category-list">${state.categories.length ? state.categories.map(categoryRow).join('') : '<div class="empty">暂无分类，请先创建分类。</div>'}</div>
   <div class="section-bar"><div><h2>商品列表</h2><p>共 ${state.products.length} 件商品</p></div></div>
-  <div class="product-list">${state.products.length ? state.products.map(productRow).join('') : '<div class="empty">暂无商品。</div>'}</div>`;
+  <div class="product-list">${state.products.length ? state.products.map(productRow).join('') : '<div class="empty">暂无商品。</div>'}</div>${categoryEditorModal()}`;
 }
 
 function categoryRow(category) {
-  return `<div class="category-row"><div class="category-idx"></div><div class="category-main"><strong>${esc(category.name)}</strong><small>${esc(category.slug)} · ${category.productCount} 件商品</small></div><span class="status ${category.isActive ? '' : 'archived'}">${category.isActive ? '启用' : '停用'}</span></div>`;
+  return `<div class="category-row"><div class="category-idx"></div><div class="category-main"><strong>${esc(category.name)}</strong><small>${esc(category.slug)} · ${category.productCount} 件商品</small></div><span class="status ${category.isActive ? '' : 'archived'}">${category.isActive ? '启用' : '停用'}</span><div class="row-actions"><button class="outline-button" data-action="edit-category" data-id="${esc(category.id)}" data-name="${esc(category.name)}" data-slug="${esc(category.slug)}" data-position="${category.position}">编辑</button><button class="outline-button ${category.isActive ? 'danger-button' : ''}" data-action="toggle-category" data-id="${esc(category.id)}" data-active="${category.isActive ? 'false' : 'true'}">${category.isActive ? '停用' : '启用'}</button></div></div>`;
+}
+function categoryEditorModal() {
+  const target = state.categoryEditor;
+  if (!target) return '';
+  return `<div class="modal-backdrop" data-action="close-category-editor"><div class="modal-card" data-stop-close><h3>编辑分类</h3><div class="field"><label>分类名称</label><input name="category-edit-name" value="${esc(target.name)}" /></div><div class="field"><label>Slug</label><input name="category-edit-slug" value="${esc(target.slug)}" /></div><div class="field"><label>排序</label><input name="category-edit-position" type="number" min="0" value="${target.position}" /></div><div class="form-actions"><button class="outline-button" data-action="close-category-editor">取消</button><button class="solid-button" data-action="save-category" data-id="${esc(target.id)}">保存分类</button></div></div></div>`;
 }
 function productRow(product) {
   return `<article class="product-row"><div><h3>${esc(product.title)}</h3><p>${esc(product.categoryName ?? '未分类')} · ${esc(product.slug)}</p><span class="status ${statusClass(product.status)}">${statusLabel(product.status)}</span></div><div class="variant-chips">${product.variants.length ? product.variants.map((v) => `<span class="variant-chip ${v.stock < 5 ? 'low' : ''}">${esc(v.name)} <b>${money(v.priceFen)}</b><small>库存 ${v.stock} · 已售 ${v.sold}</small></span>`).join('') : '<small>暂无规格</small>'}</div><div class="row-actions"><button class="outline-button" data-action="edit-product" data-id="${esc(product.id)}">编辑</button><button class="outline-button" data-action="toggle-status" data-id="${esc(product.id)}" data-status="${product.status === 'active' ? 'archived' : 'active'}">${product.status === 'active' ? '下架' : '上架'}</button></div></article>`;
@@ -221,11 +243,21 @@ function inventoryView() {
 function ordersView() {
   const orderTable = state.orders.length
     ? `<div class="table-wrap"><table><thead><tr><th>订单</th><th>买家商品</th><th>金额</th><th>支付</th><th>发卡</th><th>创建时间</th><th>处理</th></tr></thead><tbody>${state.orders.map((order) => `<tr><td><strong>${esc(order.orderNo)}</strong><small>${new Date(order.createdAt).toLocaleString('zh-CN')}</small></td><td>${esc(order.productTitle)}<small>${esc(order.variantName)} × ${order.quantity}</small></td><td>${money(order.totalPriceFen)}</td><td><span class="status ${statusClass(order.payment.status)}">${statusLabel(order.payment.status === 'paid' ? 'paid' : order.status)}</span></td><td><span class="status ${statusClass(order.status)}">${statusLabel(order.status)}</span></td><td>${new Date(order.createdAt).toLocaleDateString('zh-CN')}</td><td>${order.status === 'fulfillment_failed' ? `<button class="outline-button" data-action="retry-fulfillment" data-order-no="${esc(order.orderNo)}">重试发卡</button>` : '<small>—</small>'}</td></tr>`).join('')}</tbody></table></div>`
-    : '<div class="empty">暂无订单。</div>';
+    : '<div class="empty">当前筛选条件下暂无订单。</div>';
   const failureTable = state.webhookFailures.length
     ? `<div class="table-wrap"><table><thead><tr><th>事件 ID</th><th>类型</th><th>错误</th><th>接收时间</th></tr></thead><tbody>${state.webhookFailures.map((failure) => `<tr><td><strong>${esc(failure.provider_event_id)}</strong></td><td>${esc(failure.event_type)}</td><td><small>${esc(failure.processing_error)}</small></td><td>${new Date(failure.received_at).toLocaleString('zh-CN')}</td></tr>`).join('')}</tbody></table></div>`
     : '<div class="empty">当前没有支付回调异常。</div>';
-  return `<div class="section-bar"><div><h2>订单记录</h2><p>最近 200 条订单，支付回调和发卡状态分开显示</p></div></div>${orderTable}
+  const orderFilters = [
+    ['all', '全部'],
+    ['pending_payment', '待支付'],
+    ['payment_confirming', '确认中'],
+    ['paid', '已支付'],
+    ['fulfilling', '发卡中'],
+    ['completed', '已完成'],
+    ['fulfillment_failed', '发卡异常'],
+    ['canceled,payment_expired', '已取消'],
+  ];
+  return `<div class="section-bar"><div><h2>订单记录</h2><p>最近 200 条订单，可按状态筛选</p></div><div class="order-filters">${orderFilters.map(([key, label]) => `<button class="filter-pill ${state.ordersFilter === key ? 'active' : ''}" data-action="filter-orders" data-filter="${key}">${label}</button>`).join('')}</div></div>${orderTable}
   <div class="section-bar"><div><h2>支付回调异常</h2><p>验签成功但业务校验未通过的 DujiaoPay 事件</p></div></div>${failureTable}`;
 }
 
@@ -380,6 +412,49 @@ async function onClick(event) {
       state.balanceTarget = null;
       render(); return;
     }
+    if (action === 'show-balance-entries') {
+      const entries = await api(`/api/admin/users/${element.dataset.id}/balance-entries`);
+      state.balanceEntriesTarget = { id: element.dataset.id, name: element.dataset.name, entries };
+      render(); return;
+    }
+    if (action === 'close-balance-entries-modal') {
+      if (event.target.closest('.modal-card')) return;
+      state.balanceEntriesTarget = null;
+      render(); return;
+    }
+    if (action === 'edit-category') {
+      state.categoryEditor = {
+        id: element.dataset.id,
+        name: element.dataset.name,
+        slug: element.dataset.slug,
+        position: Number(element.dataset.position ?? 0),
+      };
+      render(); return;
+    }
+    if (action === 'close-category-editor') {
+      if (event.target.closest('.modal-card')) return;
+      state.categoryEditor = null;
+      render(); return;
+    }
+    if (action === 'save-category') {
+      const editor = state.categoryEditor;
+      if (!editor) return;
+      await api(`/api/admin/categories/${editor.id}`, { method: 'PATCH', body: JSON.stringify({
+        name: document.querySelector('[name="category-edit-name"]')?.value.trim(),
+        slug: document.querySelector('[name="category-edit-slug"]')?.value.trim(),
+        position: Number(document.querySelector('[name="category-edit-position"]')?.value || 0),
+      }) });
+      toast('分类已保存。'); state.categoryEditor = null; await refresh(); return;
+    }
+    if (action === 'toggle-category') {
+      await api(`/api/admin/categories/${element.dataset.id}`, { method: 'PATCH', body: JSON.stringify({ isActive: element.dataset.active === 'true' }) });
+      toast(element.dataset.active === 'true' ? '分类已启用。' : '分类已停用（商品保持原样，将在买家端归类为未分类）。');
+      await refresh(); return;
+    }
+    if (action === 'filter-orders') {
+      state.ordersFilter = element.dataset.filter;
+      await refresh(); return;
+    }
     if (action === 'confirm-adjust-balance') {
       const delta = Number(document.querySelector('[name="balance-delta"]')?.value);
       if (!Number.isFinite(delta) || delta === 0) { toast('请输入非零的变动金额。'); return; }
@@ -399,12 +474,13 @@ async function onClick(event) {
     }
     if (action === 'import-cards') {
       const form = element.closest('.form-panel');
-      await api('/api/admin/cards/import', { method: 'POST', body: JSON.stringify({
+      const result = await api('/api/admin/cards/import', { method: 'POST', body: JSON.stringify({
         variantId: form.querySelector('[name="card-variant"]').value,
         batchLabel: form.querySelector('[name="card-label"]').value,
         rawCards: form.querySelector('[name="card-raw"]').value,
       }) });
-      toast('卡密已加密并导入。'); await refresh(); return;
+      toast(`导入完成：成功 ${result.imported} 条，跳过重复 ${result.duplicate} 条。`);
+      await refresh(); return;
     }
     if (action === 'save-bot-token') {
       const input = document.querySelector('[name="telegram-bot-token"]');

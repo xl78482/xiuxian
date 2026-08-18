@@ -301,8 +301,9 @@ function parseCardLines(raw) {
     });
 }
 
-async function handleApi(request, response, pathname) {
+async function handleApi(request, response, url) {
   const method = request.method ?? 'GET';
+  const pathname = url.pathname;
 
   if (method === 'GET' && pathname === '/api/health') {
     syncPaymentConfig();
@@ -547,7 +548,11 @@ async function handleApi(request, response, pathname) {
   }
   if (method === 'GET' && pathname === '/api/admin/orders') {
     requireAdmin(request);
-    return sendJson(response, 200, commerce.listAdminOrders());
+    const filter = {
+      statuses: (url.searchParams.get('statuses') ?? '').split(',').filter(Boolean),
+      paymentStatus: url.searchParams.get('payment') || undefined,
+    };
+    return sendJson(response, 200, commerce.listAdminOrders(filter));
   }
   if (method === 'GET' && pathname === '/api/admin/webhook-failures') {
     requireAdmin(request);
@@ -556,6 +561,11 @@ async function handleApi(request, response, pathname) {
   if (method === 'POST' && pathname === '/api/admin/categories') {
     const user = requireAdmin(request);
     return sendJson(response, 201, commerce.createCategory(user, assertObject(await readJson(request))));
+  }
+  const adminCategoryMatch = pathname.match(/^\/api\/admin\/categories\/([A-Za-z0-9_-]+)$/);
+  if (method === 'PATCH' && adminCategoryMatch) {
+    const user = requireAdmin(request);
+    return sendJson(response, 200, commerce.updateCategory(user, adminCategoryMatch[1], assertObject(await readJson(request))));
   }
   if (method === 'POST' && pathname === '/api/admin/products') {
     const user = requireAdmin(request);
@@ -629,7 +639,7 @@ const server = http.createServer(async (request, response) => {
   try {
     const url = new URL(request.url ?? '/', config.appOrigin);
     if (url.pathname.startsWith('/api/')) {
-      await handleApi(request, response, url.pathname);
+      await handleApi(request, response, url);
       return;
     }
     if (serveApplication(request, response, url.pathname)) return;

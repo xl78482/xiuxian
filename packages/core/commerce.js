@@ -1926,8 +1926,51 @@ export class CommerceService {
     }));
   }
 
-  listAdminOrders() {
-    return many(this.db, `${orderWithPayment} ORDER BY o.created_at DESC LIMIT 200`).map(toOrderSummary);
+  listAdminOrders(filter = {}) {
+    const conditions = [];
+    const params = [];
+    const statuses = Array.isArray(filter.statuses)
+      ? filter.statuses.filter((status) => typeof status === 'string' && status)
+      : filter.status
+        ? [filter.status]
+        : [];
+    if (statuses.length === 1) {
+      conditions.push('o.status = ?');
+      params.push(statuses[0]);
+    } else if (statuses.length > 1) {
+      conditions.push(`o.status IN (${statuses.map(() => '?').join(', ')})`);
+      params.push(...statuses);
+    }
+    if (filter.paymentStatus) {
+      conditions.push('pt.status = ?');
+      params.push(filter.paymentStatus);
+    }
+    const where = conditions.length ? ` WHERE ${conditions.join(' AND ')}` : '';
+    return many(this.db, `${orderWithPayment}${where} ORDER BY o.created_at DESC LIMIT 200`, ...params).map(toOrderSummary);
+  }
+
+  updateCategory(actor, categoryId, input) {
+    const category = one(this.db, 'SELECT * FROM categories WHERE id = ?', categoryId);
+    if (!category) throw new DomainError('分类不存在。', 'category_not_found', 404);
+    const nextName = input.name !== undefined ? assertText(input.name, '分类名称', 1, 80) : category.name;
+    const nextSlug = input.slug !== undefined && String(input.slug).trim()
+      ? assertSlug(String(input.slug).trim())
+      : category.slug;
+    const nextPosition = input.position !== undefined ? assertInteger(input.position, '排序', 0, 10000) : Number(category.position);
+    const nextActive = input.isActive !== undefined ? Boolean(input.isActive) : asBoolean(category.is_active);
+    const now = nowIso();
+    run(
+      this.db,
+      'UPDATE categories SET name = ?, slug = ?, position = ?, is_active = ?, updated_at = ? WHERE id = ?',
+      nextName,
+      nextSlug,
+      nextPosition,
+      nextActive ? 1 : 0,
+      now,
+      categoryId,
+    );
+    this.audit(actor.id, 'category.updated', 'category', categoryId, { slug: nextSlug, isActive: nextActive });
+    return this.listCategories().find((item) => item.id === categoryId) ?? { id: categoryId };
   }
 
   retryFulfillment(actor, orderNo) {
