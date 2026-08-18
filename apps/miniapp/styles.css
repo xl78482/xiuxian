@@ -1582,6 +1582,26 @@ html, body, .native-shell, .app-shell {
   box-shadow: 0 12px 30px rgba(0,0,0,.45);
 }
 
+/* —— 初始化 / 连接失败页（旧 .page/.empty 结构补暗色） —— */
+.page {
+  min-height: 100vh;
+  background: var(--neo-bg);
+}
+.page .empty {
+  background: rgba(255,255,255,.045);
+  border: 1px solid rgba(255,255,255,.13);
+  border-radius: 18px;
+  color: var(--neo-muted);
+}
+.page .empty strong {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--neo-ink);
+  font-size: 15px;
+}
+.page .empty p { color: var(--neo-muted); font-size: 12px; line-height: 1.6; }
+.page .empty button { margin-top: 14px; }
+
 /* —— 桌面端容器描边 —— */
 @media (min-width: 720px) {
   .native-shell {
