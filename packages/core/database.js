@@ -243,6 +243,21 @@ export function openDatabase(databasePath) {
                 SELECT id FROM orders WHERE status = 'canceled'
               );`,
     },
+    {
+      version: 6,
+      sql: `ALTER TABLE users ADD COLUMN balance_fen INTEGER NOT NULL DEFAULT 0;
+            CREATE TABLE IF NOT EXISTS balance_entries (
+              id TEXT PRIMARY KEY,
+              user_id TEXT NOT NULL REFERENCES users(id),
+              change_fen INTEGER NOT NULL,
+              balance_after_fen INTEGER NOT NULL,
+              kind TEXT NOT NULL CHECK(kind IN ('recharge', 'adjust', 'purchase', 'refund', 'expire')),
+              memo TEXT NOT NULL DEFAULT '',
+              source TEXT NOT NULL DEFAULT 'manual',
+              created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_balance_entries_user ON balance_entries(user_id, created_at);`,
+    },
   ];
   const applied = new Set(db.prepare('SELECT version FROM schema_migrations').all().map((row) => Number(row.version)));
   for (const migration of migrations) {

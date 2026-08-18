@@ -57,6 +57,7 @@ function toUser(row) {
         photoUrl: row.photo_url,
         isActive: Boolean(Number(row.is_active)),
         isAdmin: row.role === 'admin',
+        balanceFen: Number(row.balance_fen ?? 0),
       }
     : null;
 }
@@ -1425,12 +1426,67 @@ export class CommerceService {
       languageCode: user.language_code,
       photoUrl: user.photo_url,
       isActive: asBoolean(user.is_active),
+      balanceFen: Number(user.balance_fen),
       orderCount: Number(user.order_count),
       paidOrderCount: Number(user.paid_order_count),
       spentFen: Number(user.spent_fen),
       lastOrderAt: user.last_order_at,
       createdAt: user.created_at,
       updatedAt: user.updated_at,
+    }));
+  }
+
+  adjustUserBalance(actor, userId, deltaFen, options = {}) {
+    const kind = options.kind ?? 'adjust';
+    const memo = options.memo ?? '';
+    deltaFen = Number(deltaFen);
+    if (!Number.isInteger(deltaFen) || deltaFen === 0) throw new DomainError('变动金额必须是整数分且不能为 0。', 'invalid_request', 422);
+    const user = one(this.db, `SELECT * FROM users WHERE id = ? AND role != 'admin' AND telegram_id NOT LIKE 'admin:%'`, userId);
+    if (!user) throw new DomainError('用户不存在。', 'user_not_found', 404);
+    const current = Number(user.balance_fen ?? 0);
+    const next = current + deltaFen;
+    if (next < 0) throw new DomainError('余额不足，无法扣减。', 'insufficient_balance', 422);
+    const id = randomId('bal_');
+    const now = nowIso();
+    transaction(this.db, () => {
+      run(this.db, 'UPDATE users SET balance_fen = ?, updated_at = ? WHERE id = ?', next, now, userId);
+      run(
+        this.db,
+        `INSERT INTO balance_entries (id, user_id, change_fen, balance_after_fen, kind, memo, source, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        id,
+        userId,
+        deltaFen,
+        next,
+        ['recharge', 'adjust', 'purchase', 'refund', 'expire'].includes(kind) ? kind : 'adjust',
+        memo,
+        options.source ?? 'manual',
+        now,
+      );
+    });
+    this.audit(actor.id, `balance.${deltaFen > 0 ? 'credit' : 'debit'}`, 'user', userId, {
+      changeFen: deltaFen,
+      balanceAfterFen: next,
+      kind,
+      memo,
+    });
+    return this.getUser(userId);
+  }
+
+  listBalanceEntries(userId, limit = 50) {
+    return many(
+      this.db,
+      `SELECT * FROM balance_entries WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`,
+      userId,
+      Number(limit),
+    ).map((row) => ({
+      id: row.id,
+      changeFen: Number(row.change_fen),
+      balanceAfterFen: Number(row.balance_after_fen),
+      kind: row.kind,
+      memo: row.memo,
+      source: row.source,
+      createdAt: row.created_at,
     }));
   }
 

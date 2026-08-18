@@ -15,6 +15,8 @@ const state = {
   authRefreshPromise: null,
   checkoutIdempotencyKey: null,
   publicConfig: null,
+  showRecharge: false,
+  balanceEntries: null,
 };
 
 class ApiError extends Error {
@@ -42,6 +44,7 @@ const icon = {
   refresh: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5M4 18v-5h5"/><path d="M6.1 9a7 7 0 0 1 11.5-2.4L20 11M4 13l2.4 4.4A7 7 0 0 0 17.9 15"/></svg>',
   back: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>',
   info: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 10v6M12 7h.01"/></svg>',
+  wallet: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h13a1 1 0 0 1 1 1v2"/><path d="M3 7v11a2 2 0 0 0 2 2h14a1 1 0 0 0 1-1V9a1 1 0 0 0-1-1h-4"/></svg>',
 };
 
 function esc(value) {
@@ -152,6 +155,9 @@ function renderHeader() {
   if (detail) {
     return `<header class="mini-header detail-header"><button class="mini-icon-button" data-action="close-detail" title="返回商城" aria-label="返回商城">${icon.back}</button><div class="detail-header-title"><strong>${esc(detail.title)}</strong><small>商品详情</small></div><span class="header-spacer"></span></header>`;
   }
+  if (state.showRecharge) {
+    return `<header class="mini-header detail-header"><button class="mini-icon-button" data-action="close-recharge" title="返回我的" aria-label="返回我的">${icon.back}</button><div class="detail-header-title"><strong>余额充值</strong><small>充值与管理余额</small></div><span class="header-spacer"></span></header>`;
+  }
   const titles = {
     shop: ['XiuXian', '数字商品商城'],
     orders: ['我的订单', '支付与交付记录'],
@@ -254,11 +260,12 @@ function profileView() {
   const firstName = state.user?.firstName ?? '';
   const lastName = state.user?.lastName ?? '';
   const displayName = `${firstName} ${lastName}`.trim() || 'Telegram 用户';
-  const initials = displayName.slice(0, 1).toUpperCase();
-  const username = state.user?.username ? `@${state.user.username}` : '未设置 Telegram 用户名';
+  const username = state.user?.username ? `@${state.user.username}` : '';
   const photo = state.user?.photoUrl;
+  const balance = Number(state.user?.balanceFen ?? 0);
   return `<section class="profile-view">
-    <div class="profile-capsule"><div class="profile-avatar ${photo ? 'has-photo' : ''}"><span>${esc(initials)}</span>${photo ? `<img src="${esc(photo)}" alt="${esc(displayName)} 的 Telegram 头像" referrerpolicy="no-referrer" />` : ''}</div><div class="profile-info"><span class="profile-kicker">TELEGRAM ACCOUNT</span><h2>${esc(displayName)}</h2><p>${esc(username)}</p><small class="profile-id">Telegram ID · ${esc(state.user?.telegramId ?? '')}</small></div><span class="profile-status">已连接</span></div>
+    <div class="profile-capsule"><div class="profile-avatar ${photo ? 'has-photo' : ''}">${photo ? `<img src="${esc(photo)}" alt="${esc(displayName)} 的 Telegram 头像" referrerpolicy="no-referrer" />` : ''}</div><div class="profile-info"><span class="profile-kicker">TELEGRAM ACCOUNT</span><h2>${esc(displayName)}</h2>${username ? `<p class="profile-username">${esc(username)}</p>` : ''}<small class="profile-id">Telegram ID：${esc(state.user?.telegramId ?? '')}</small></div><span class="profile-status">已连接</span></div>
+    <div class="profile-balance"><div class="balance-label">账户余额</div><div class="balance-amount"><small>￥</small>${money(balance).slice(1)}</div><button class="balance-recharge" data-action="open-recharge">${icon.wallet}<span>充值</span></button></div>
     <div class="native-menu">
       <button data-action="switch-tab" data-tab="orders"><span>${icon.receipt}<b>我的订单</b></span>${icon.chevron}</button>
       ${state.publicConfig?.supportUrl ? `<button data-action="open-support"><span>${icon.support}<b>联系售后</b></span>${icon.chevron}</button>` : ''}
@@ -267,11 +274,32 @@ function profileView() {
   </section>`;
 }
 
+function rechargeView() {
+  const balance = Number(state.user?.balanceFen ?? 0);
+  const entries = state.balanceEntries ?? [];
+  return `<section class="recharge-view">
+    <div class="recharge-balance"><span>当前余额</span><strong>${money(balance)}</strong></div>
+    <div class="recharge-card">
+      <h3>充值</h3>
+      <p class="recharge-tip">请输入充值金额，提交后联系客服在后台为你的余额充值到账。</p>
+      <input name="recharge-amount" class="recharge-input" type="number" inputmode="decimal" min="0.01" step="0.01" placeholder="充值金额（元）" aria-label="充值金额" />
+      <button class="recharge-submit" data-action="submit-recharge">充值</button>
+    </div>
+    <div class="balance-history"><div class="balance-history-title"><span class="section-eyebrow">BALANCE</span><h3>余额明细</h3></div>
+      ${entries.length ? `<div class="balance-list">${entries.map((entry) => { const kindLabel = { recharge: '充值', adjust: '调整', purchase: '消费', refund: '退款', expire: '过期' }[entry.kind] ?? entry.kind; return `<div class="balance-item"><div><strong>${esc(kindLabel)}</strong><small>${new Date(entry.createdAt).toLocaleString('zh-CN')}</small></div><span class="${entry.changeFen >= 0 ? 'credit' : 'debit'}">${entry.changeFen >= 0 ? '+' : ''}${money(entry.changeFen)}</span></div>`; }).join('')}</div>` : '<div class="balance-empty">暂无余额变动记录</div>'}
+    </div>
+  </section>`;
+}
+
 function renderCatalog() {
   const detail = state.detailProductId ? findProduct(state.detailProductId) : null;
+  const inRecharge = state.showRecharge;
   const views = { shop: shopView, orders: ordersView, profile: profileView };
-  const content = detail ? productDetailView(detail) : views[state.activeTab]();
-  app.innerHTML = `<div class="app-shell native-shell ${detail ? 'detail-shell' : ''}">${renderHeader()}<main class="mini-content">${content}</main>${renderDrawer()}<section class="order-panel" id="order-panel"></section>${detail ? '' : renderTabbar()}<div class="toast" id="toast" role="status"></div></div>`;
+  let content;
+  if (detail) content = productDetailView(detail);
+  else if (inRecharge) content = rechargeView();
+  else content = views[state.activeTab]();
+  app.innerHTML = `<div class="app-shell native-shell ${detail ? 'detail-shell' : ''}">${renderHeader()}<main class="mini-content">${content}</main>${renderDrawer()}<section class="order-panel" id="order-panel"></section>${detail || inRecharge ? '' : renderTabbar()}<div class="toast" id="toast" role="status"></div></div>`;
 }
 
 function renderDrawer() {
@@ -518,6 +546,7 @@ function closeDetail() {
 async function switchTab(tab) {
   if (!['shop', 'orders', 'profile'].includes(tab)) return;
   state.detailProductId = null;
+  state.showRecharge = false;
   clearInterval(state.orderPoll);
   stopPaymentTimer();
   state.activeTab = tab;
@@ -529,6 +558,28 @@ async function switchTab(tab) {
 
 async function showOrders() {
   return switchTab('orders');
+}
+
+async function loadBalance(force = false) {
+  try {
+    const data = await api('/api/me/balance');
+    if (state.user) state.user.balanceFen = data.balanceFen;
+    state.balanceEntries = data.entries ?? [];
+  } catch { /* transient errors keep existing balance view */ }
+  if (state.showRecharge) renderCatalog();
+}
+
+function submitRecharge() {
+  const amount = Number(document.querySelector('[name="recharge-amount"]')?.value);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    showToast('请输入正确的充值金额。');
+    return;
+  }
+  const support = state.publicConfig?.supportUrl;
+  showToast('充值申请已记录，请联系客服完成到账。');
+  if (support) {
+    setTimeout(() => openExternalUrl(support), 600);
+  }
 }
 
 function showToast(message) {
@@ -612,6 +663,23 @@ async function onClick(event) {
   }
   if (action === 'close-detail') {
     return closeDetail();
+  }
+  if (action === 'open-recharge') {
+    state.showRecharge = true;
+    state.balanceEntries = null;
+    history.pushState({}, '', '/wallet');
+    renderCatalog();
+    void loadBalance();
+    return;
+  }
+  if (action === 'close-recharge') {
+    state.showRecharge = false;
+    history.pushState({}, '', '/');
+    renderCatalog();
+    return;
+  }
+  if (action === 'submit-recharge') {
+    return submitRecharge();
   }
   if (action === 'select-detail-variant') {
     state.selectedVariants.set(actionElement.dataset.productId, actionElement.dataset.variantId);
@@ -705,7 +773,12 @@ async function initialize() {
     const detailProductId = routeProductSlug();
     if (existingOrder) state.activeTab = 'orders';
     if (detailProductId) state.detailProductId = detailProductId;
+    if (location.pathname.startsWith('/wallet')) {
+      state.activeTab = 'profile';
+      state.showRecharge = true;
+    }
     renderCatalog();
+    if (state.showRecharge) void loadBalance();
     if (existingOrder) await openOrder(existingOrder, false);
   } catch (error) {
     app.innerHTML = `<main class="page"><div class="empty"><strong>暂时无法进入商店</strong><p>${esc(error.message)}</p><button class="copy-button" data-action="reload">重新连接</button></div></main>`;
@@ -722,7 +795,13 @@ document.addEventListener('change', onChange);
 window.addEventListener('popstate', () => {
   const detailProductId = routeProductSlug();
   state.detailProductId = detailProductId;
-  if (!detailProductId) state.activeTab = 'shop';
+  if (location.pathname.startsWith('/wallet')) {
+    state.activeTab = 'profile';
+    state.showRecharge = true;
+  } else {
+    state.showRecharge = false;
+    if (!detailProductId) state.activeTab = 'shop';
+  }
   renderCatalog();
 });
 document.addEventListener('error', (event) => {

@@ -494,6 +494,27 @@ async function handleApi(request, response, pathname) {
     const body = assertObject(await readJson(request));
     return sendJson(response, 200, commerce.updateUserStatus(user, adminUserStatusMatch[1], body.isActive));
   }
+  const adminUserBalanceMatch = pathname.match(/^\/api\/admin\/users\/(usr_[A-Za-z0-9-]+)\/balance$/);
+  if (method === 'PATCH' && adminUserBalanceMatch) {
+    const user = requireAdmin(request);
+    const body = assertObject(await readJson(request));
+    return sendJson(response, 200, commerce.adjustUserBalance(user, adminUserBalanceMatch[1], body.deltaFen, {
+      kind: body.kind ?? 'adjust',
+      memo: body.memo ?? '',
+    }));
+  }
+  const adminUserBalanceEntriesMatch = pathname.match(/^\/api\/admin\/users\/(usr_[A-Za-z0-9-]+)\/balance-entries$/);
+  if (method === 'GET' && adminUserBalanceEntriesMatch) {
+    requireAdmin(request);
+    return sendJson(response, 200, commerce.listBalanceEntries(adminUserBalanceEntriesMatch[1]));
+  }
+  if (method === 'GET' && pathname === '/api/me/balance') {
+    const identity = requireIdentity(request).identity;
+    return sendJson(response, 200, {
+      balanceFen: Number(identity.balanceFen ?? 0),
+      entries: commerce.listBalanceEntries(identity.id, 50),
+    });
+  }
 
   if (method === 'GET' && pathname === '/api/admin/dashboard') {
     requireAdmin(request);

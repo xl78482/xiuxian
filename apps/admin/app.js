@@ -12,6 +12,7 @@ const state = {
   settings: null,
   paymentNotice: null,
   paymentSaving: false,
+  balanceTarget: null,
   version: null,
   editingProductId: null,
   message: '',
@@ -123,11 +124,11 @@ async function loadViewData() {
 
 function sidebar() {
   const links = [['overview', '数据看板'], ['users', '用户管理'], ['products', '商品管理'], ['inventory', '卡密库存'], ['orders', '订单记录'], ['payments', '支付渠道'], ['settings', '系统设置']];
-  return `<aside class="sidebar"><a href="/admin" class="admin-brand"><span class="admin-mark">XX</span><span>XiuXian<small>Operations console · v${esc(state.version ?? '1.0.8')}</small></span></a><span class="side-label">Workspace</span><nav class="side-nav">${links.map(([view, label]) => `<button class="${state.view === view ? 'active' : ''}" data-action="navigate" data-view="${view}">${icons[view]}${label}</button>`).join('')}</nav><div class="sidebar-foot"><strong>${esc(state.user?.username ?? state.user?.firstName ?? '管理员')}</strong>独立管理员账号<br/>数字商品交付系统 · v${esc(state.version ?? '1.0.8')}</div></aside>`;
+  return `<aside class="sidebar"><a href="/admin" class="admin-brand"><span class="admin-mark">XX</span><span>XiuXian<small>管理后台 · v${esc(state.version ?? '1.0.8')}</small></span></a><span class="side-label">管理</span><nav class="side-nav">${links.map(([view, label]) => `<button class="${state.view === view ? 'active' : ''}" data-action="navigate" data-view="${view}">${icons[view]}${label}</button>`).join('')}</nav><div class="sidebar-foot"><strong>${esc(state.user?.username ?? state.user?.firstName ?? '管理员')}</strong>独立管理员账号<br/>版本 v${esc(state.version ?? '1.0.8')}</div></aside>`;
 }
 
 function topbar() {
-  const titles = { overview: ['数据看板', '今天的经营概况与库存健康度'], users: ['用户管理', 'Telegram 买家资料与账号状态'], products: ['商品管理', '管理分类、商品和销售规格'], inventory: ['卡密库存', '批次导入与可售库存检查'], orders: ['订单记录', '支付状态和自动发卡结果'], payments: ['支付渠道', '配置收款渠道、网络和回调密钥'], settings: ['系统设置', '管理员账号与 Telegram Bot 配置'] };
+  const titles = { overview: ['数据看板', '今日经营与库存概况'], users: ['用户管理', '买家资料、余额与账号状态'], products: ['商品管理', '分类、商品和销售规格'], inventory: ['卡密库存', '批次导入与可售库存'], orders: ['订单记录', '支付状态和发卡结果'], payments: ['支付渠道', '收款渠道、网络和回调密钥'], settings: ['系统设置', '管理员账号与 Telegram Bot'] };
   const [title, subtitle] = titles[state.view];
   return `<header class="main-top"><div><h1>${title}</h1><p>${subtitle}</p></div><div class="top-actions"><a class="outline-button" href="/" title="打开买家端">${icons.external} 买家端</a><button class="outline-button" data-action="refresh">刷新</button><button class="outline-button" data-action="logout">退出</button></div></header>`;
 }
@@ -157,10 +158,15 @@ function usersView() {
     const username = user.username ? `@${user.username}` : '未设置用户名';
     const search = `${displayName} ${username} ${user.telegramId}`.toLowerCase();
     const initial = displayName.slice(0, 1).toUpperCase();
-    return `<tr data-user-row data-search="${esc(search)}"><td><div class="admin-user"><div class="admin-user-avatar"><span>${esc(initial)}</span>${user.photoUrl ? `<img src="${esc(user.photoUrl)}" alt="" referrerpolicy="no-referrer" />` : ''}</div><div><strong>${esc(displayName)}</strong><small>${esc(username)}</small></div></div></td><td><code>${esc(user.telegramId)}</code><small>${esc(user.languageCode ?? '—')}</small></td><td><span class="status ${user.isActive ? '' : 'archived'}">${user.isActive ? '正常' : '已停用'}</span></td><td>${user.orderCount}<small>已支付 ${user.paidOrderCount}</small></td><td>${money(user.spentFen)}</td><td>${new Date(user.createdAt).toLocaleDateString('zh-CN')}<small>${user.lastOrderAt ? `最近下单 ${new Date(user.lastOrderAt).toLocaleDateString('zh-CN')}` : '暂无订单'}</small></td><td><button class="outline-button ${user.isActive ? 'danger-button' : ''}" data-action="toggle-user-status" data-id="${esc(user.id)}" data-active="${user.isActive ? 'false' : 'true'}">${user.isActive ? '停用' : '恢复'}</button></td></tr>`;
+    return `<tr data-user-row data-search="${esc(search)}"><td><div class="admin-user"><div class="admin-user-avatar"><span>${esc(initial)}</span>${user.photoUrl ? `<img src="${esc(user.photoUrl)}" alt="" referrerpolicy="no-referrer" />` : ''}</div><div><strong>${esc(displayName)}</strong><small>${esc(username)}</small></div></div></td><td><code>${esc(user.telegramId)}</code><small>${esc(user.languageCode ?? '—')}</small></td><td><span class="status ${user.isActive ? '' : 'archived'}">${user.isActive ? '正常' : '已停用'}</span></td><td>${user.orderCount}<small>已支付 ${user.paidOrderCount}</small></td><td>${money(user.spentFen)}</td><td><div class="balance-cell"><strong>${money(user.balanceFen ?? 0)}</strong><button class="outline-button" data-action="adjust-user-balance" data-id="${esc(user.id)}" data-name="${esc(displayName)}" data-balance="${user.balanceFen ?? 0}">调整</button></div></td><td>${new Date(user.createdAt).toLocaleDateString('zh-CN')}<small>${user.lastOrderAt ? `最近下单 ${new Date(user.lastOrderAt).toLocaleDateString('zh-CN')}` : '暂无订单'}</small></td><td><button class="outline-button ${user.isActive ? 'danger-button' : ''}" data-action="toggle-user-status" data-id="${esc(user.id)}" data-active="${user.isActive ? 'false' : 'true'}">${user.isActive ? '停用' : '恢复'}</button></td></tr>`;
   }).join('');
   return `<div class="section-bar user-section-bar"><div><h2>Telegram 买家</h2><p>共 <span data-user-count>${state.users.length}</span> 位用户，可按姓名、用户名或 ID 搜索</p></div><input class="user-search" type="search" placeholder="搜索用户" aria-label="搜索用户" data-user-search /></div>
-    ${state.users.length ? `<div class="table-wrap"><table><thead><tr><th>用户</th><th>Telegram ID</th><th>状态</th><th>订单</th><th>累计消费</th><th>加入时间</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="empty">暂无 Telegram 买家。</div>'}`;
+    ${state.users.length ? `<div class="table-wrap"><table><thead><tr><th>用户</th><th>Telegram ID</th><th>状态</th><th>订单</th><th>累计消费</th><th>余额</th><th>加入时间</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="empty">暂无 Telegram 买家。</div>'}${balanceModal()}`;
+}
+function balanceModal() {
+  if (!state.balanceTarget) return '';
+  const target = state.balanceTarget;
+  return `<div class="modal-backdrop" data-action="close-balance-modal"><div class="modal-card" data-stop-close><h3>调整余额</h3><p class="settings-copy">为 <strong>${esc(target.name)}</strong> 调整余额。当前余额 <strong>${money(target.balance)}</strong>。</p><div class="field"><label>变动金额（元，正加负减）</label><input name="balance-delta" type="number" min="0.01" step="0.01" placeholder="例如：50 或 -20" /></div><div class="field"><label>备注</label><input name="balance-memo" placeholder="例如：充值到账 / 消费扣减" /></div><div class="form-actions"><button class="outline-button" data-action="close-balance-modal">取消</button><button class="solid-button" data-action="confirm-adjust-balance" data-id="${esc(target.id)}">保存</button></div></div></div>`;
 }
 
 function productsView() {
@@ -285,7 +291,7 @@ async function onClick(event) {
       root.innerHTML = loginScreen();
       return;
     }
-    if (action === 'navigate') { state.view = element.dataset.view; if (state.view !== 'settings') state.settingsNotice = null; if (state.view !== 'payments') state.paymentNotice = null; await refresh(); return; }
+    if (action === 'navigate') { state.view = element.dataset.view; state.balanceTarget = null; if (state.view !== 'settings') state.settingsNotice = null; if (state.view !== 'payments') state.paymentNotice = null; await refresh(); return; }
     if (action === 'refresh') { await refresh(); toast('数据已刷新。'); return; }
     if (action === 'toggle-panel') { const panel = document.querySelector(`#${element.dataset.panel}`); if (panel) panel.hidden = !panel.hidden; return; }
     if (action === 'edit-product') { state.editingProductId = element.dataset.id; render(); document.querySelector('#product-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
@@ -353,6 +359,24 @@ async function onClick(event) {
       await api(`/api/admin/users/${element.dataset.id}/status`, { method: 'PATCH', body: JSON.stringify({ isActive: element.dataset.active === 'true' }) });
       toast(element.dataset.active === 'true' ? '用户已恢复。' : '用户已停用。');
       await refresh(); return;
+    }
+    if (action === 'adjust-user-balance') {
+      state.balanceTarget = { id: element.dataset.id, name: element.dataset.name, balance: Number(element.dataset.balance) };
+      render(); return;
+    }
+    if (action === 'close-balance-modal') {
+      if (event.target.closest('.modal-card')) return;
+      state.balanceTarget = null;
+      render(); return;
+    }
+    if (action === 'confirm-adjust-balance') {
+      const delta = Number(document.querySelector('[name="balance-delta"]')?.value);
+      if (!Number.isFinite(delta) || delta === 0) { toast('请输入非零的变动金额。'); return; }
+      await api(`/api/admin/users/${element.dataset.id}/balance`, { method: 'PATCH', body: JSON.stringify({
+        deltaFen: Math.round(delta * 100),
+        memo: document.querySelector('[name="balance-memo"]')?.value || '后台调整',
+      }) });
+      toast('余额已更新。'); state.balanceTarget = null; await refresh(); return;
     }
     if (action === 'toggle-status') {
       await api(`/api/admin/products/${element.dataset.id}`, { method: 'PATCH', body: JSON.stringify({ status: element.dataset.status }) });

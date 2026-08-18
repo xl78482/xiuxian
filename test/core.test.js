@@ -118,6 +118,38 @@ test('generates a unique slug automatically when slug is left empty', () => {
   }
 });
 
+test('adjusts user balance with audit trail and guards negative totals', () => {
+  const { db, commerce, admin, directory } = setup();
+  try {
+    const buyer = commerce.upsertTelegramUser({ id: 300000001, first_name: 'Balance', username: 'balance_user' });
+    assert.equal(buyer.balanceFen, 0);
+
+    // 管理员加款
+    const credited = commerce.adjustUserBalance(admin, buyer.id, 5000, { memo: '人工充值' });
+    assert.equal(credited.balanceFen, 5000);
+
+    // 再减款后余额正确
+    const debited = commerce.adjustUserBalance(admin, buyer.id, -1500, { memo: '扣减' });
+    assert.equal(debited.balanceFen, 3500);
+
+    // 流水记录
+    const entries = commerce.listBalanceEntries(buyer.id);
+    assert.equal(entries.length, 2);
+    assert.equal(entries[0].changeFen, -1500);
+    assert.equal(entries[0].balanceAfterFen, 3500);
+    assert.equal(entries[1].changeFen, 5000);
+
+    // 余额不足应拒绝
+    assert.throws(() => commerce.adjustUserBalance(admin, buyer.id, -99999), /余额不足/);
+
+    // 审计日志
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE action LIKE 'balance.%'").get().count, 2);
+  } finally {
+    db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('does not expose stored card plaintext in the database', async () => {
   const { db, commerce, admin, directory } = setup();
   try {
