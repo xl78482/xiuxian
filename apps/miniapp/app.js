@@ -264,8 +264,14 @@ function profileView() {
   const photo = state.user?.photoUrl;
   const balance = Number(state.user?.balanceFen ?? 0);
   return `<section class="profile-view">
-    <div class="profile-capsule"><div class="profile-avatar ${photo ? 'has-photo' : ''}">${photo ? `<img src="${esc(photo)}" alt="${esc(displayName)} 的 Telegram 头像" referrerpolicy="no-referrer" />` : ''}</div><div class="profile-info"><span class="profile-kicker">TELEGRAM ACCOUNT</span><h2>${esc(displayName)}</h2>${username ? `<p class="profile-username">${esc(username)}</p>` : ''}<small class="profile-id">Telegram ID：${esc(state.user?.telegramId ?? '')}</small></div><span class="profile-status">已连接</span></div>
-    <div class="profile-balance"><div class="balance-label">账户余额</div><div class="balance-amount"><small>￥</small>${money(balance).slice(1)}</div><button class="balance-recharge" data-action="open-recharge">${icon.wallet}<span>充值</span></button></div>
+    <div class="profile-capsule">
+      <div class="capsule-row">
+        <div class="profile-avatar ${photo ? 'has-photo' : ''}">${photo ? `<img src="${esc(photo)}" alt="${esc(displayName)} 的 Telegram 头像" referrerpolicy="no-referrer" />` : ''}</div>
+        <div class="profile-info"><h2>${esc(displayName)}</h2>${username ? `<p class="profile-username">${esc(username)}</p>` : ''}<small class="profile-id">Telegram ID：${esc(state.user?.telegramId ?? '')}</small></div>
+        <span class="profile-status">已连接</span>
+      </div>
+      <div class="capsule-balance"><div class="balance-label">账户余额</div><div class="balance-amount"><small>￥</small>${money(balance).slice(1)}</div><button class="balance-recharge" data-action="open-recharge">${icon.wallet}<span>充值</span></button></div>
+    </div>
     <div class="native-menu">
       <button data-action="switch-tab" data-tab="orders"><span>${icon.receipt}<b>我的订单</b></span>${icon.chevron}</button>
       ${state.publicConfig?.supportUrl ? `<button data-action="open-support"><span>${icon.support}<b>联系售后</b></span>${icon.chevron}</button>` : ''}
