@@ -979,3 +979,149 @@ html, body, .native-shell, .app-shell { background: var(--ios-bg); color: var(--
   .native-shell .product-card,
   .native-order { box-shadow: 0 1px 2px rgba(0,0,0,.4), inset 0 0 0 0.5px rgba(255,255,255,.06); }
 }
+
+/* =========================================================
+   v1.0.20 Smooth motion layer
+   丝滑体验：入场动画 / 抽屉与订单面板过渡 / 按压反馈 /
+   骨架屏 / 数字滚动 / 减少动画偏好适配
+   ========================================================= */
+
+/* —— 基础手感 —— */
+html { -webkit-text-size-adjust: 100%; }
+body {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+button {
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
+img { -webkit-user-drag: none; }
+
+/* —— 入场动画（由 JS 在首次加载 / 分类切换 / 打开详情时触发，避免频繁重绘动画轰炸） —— */
+@keyframes rise-in { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pop-in { from { opacity: 0; transform: translateY(10px) scale(.97); } to { opacity: 1; transform: none; } }
+
+.shop-banner.banner-enter { animation: rise-in .5s cubic-bezier(.22,1,.36,1) both; }
+.category-pill.pill-enter { animation: rise-in .42s cubic-bezier(.22,1,.36,1) both; }
+.product-card.card-enter { animation: rise-in .45s cubic-bezier(.22,1,.36,1) both; }
+.detail-cover.detail-enter { animation: fade-in .4s ease both; }
+.detail-intro.detail-enter { animation: rise-in .45s cubic-bezier(.22,1,.36,1) both; }
+.detail-section.detail-enter { animation: rise-in .45s cubic-bezier(.22,1,.36,1) both; }
+.recharge-card.recharge-enter { animation: pop-in .4s cubic-bezier(.22,1,.36,1) both; }
+
+/* —— 购买抽屉：底部弹出 / 收起 —— */
+.drawer-backdrop {
+  display: block;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .28s ease, visibility .28s ease;
+}
+.drawer-backdrop.open {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+}
+.drawer {
+  transform: translateY(100%);
+  transition: transform .38s cubic-bezier(.32,.72,0,1);
+  will-change: transform;
+}
+.drawer-backdrop.open .drawer { transform: none; }
+
+/* —— 订单面板：淡入 + 卡片弹入 —— */
+.order-panel {
+  display: block;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .26s ease, visibility .26s ease;
+}
+.order-panel.open {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+}
+.order-card {
+  transform: translateY(12px) scale(.985);
+  transition: transform .34s cubic-bezier(.32,.72,0,1);
+}
+.order-panel.open .order-card { transform: none; }
+
+/* —— 统一按压反馈（补齐缺失元素） —— */
+.icon-button, .close-button, .copy-button, .quantity-control button,
+.product-open, .detail-variant, .native-order, .native-menu button, .native-menu a,
+.mini-icon-button, .filter, .category-pill {
+  transition: transform .15s ease, background .2s ease, border-color .2s ease, color .2s ease, box-shadow .2s ease;
+}
+.icon-button:active, .close-button:active, .copy-button:active, .quantity-control button:active,
+.product-open:active, .detail-variant:active, .native-order:active, .native-menu button:active,
+.native-menu a:active, .mini-icon-button:active, .filter:active, .category-pill:active {
+  transform: scale(.97);
+}
+.buy-button:active, .primary-button:active, .recharge-submit:active, .balance-recharge:active,
+.order-filter-pill:active { transform: scale(.97); }
+
+/* —— 骨架屏（订单加载） —— */
+.skeleton-list { display: grid; gap: 10px; }
+.skeleton-card {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 13px;
+  min-height: 164px;
+  padding: 13px;
+  border-radius: 16px;
+  background: #fff;
+}
+.skeleton-block {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #edeff3;
+}
+.skeleton-block::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.75), transparent);
+  animation: shimmer 1.3s infinite;
+}
+@keyframes shimmer { to { transform: translateX(100%); } }
+.skeleton-card .skeleton-block.thumb { width: 112px; height: 136px; border-radius: 12px; }
+.skeleton-lines { display: grid; align-content: center; gap: 9px; }
+.skeleton-block.line { height: 11px; }
+.skeleton-block.w60 { width: 60%; }
+.skeleton-block.w40 { width: 40%; }
+.skeleton-block.w30 { width: 30%; }
+
+/* —— 余额数字滚动（span 继承父级字号样式） —— */
+.balance-amount span { font: inherit; color: inherit; }
+
+/* —— 桌面端抽屉从右侧滑入 —— */
+@media (min-width: 720px) {
+  .native-shell .drawer { transform: translateX(100%); }
+  .native-shell .drawer-backdrop.open .drawer { transform: none; }
+}
+
+/* —— 减少动画偏好：关闭所有新增强化动画 —— */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .shop-banner.banner-enter, .category-pill.pill-enter, .product-card.card-enter,
+  .detail-cover.detail-enter, .detail-intro.detail-enter, .detail-section.detail-enter,
+  .recharge-card.recharge-enter, .skeleton-block::after { animation: none !important; }
+  .drawer-backdrop, .drawer, .order-panel, .order-card { transition: none !important; }
+  .drawer, .order-card { transform: none !important; }
+  .icon-button, .close-button, .copy-button, .quantity-control button,
+  .product-open, .detail-variant, .native-order, .native-menu button, .native-menu a,
+  .mini-icon-button, .filter, .category-pill { transition: none !important; }
+  .icon-button:active, .close-button:active, .copy-button:active, .quantity-control button:active,
+  .product-open:active, .detail-variant:active, .native-order:active, .native-menu button:active,
+  .native-menu a:active, .mini-icon-button:active, .filter:active, .category-pill:active,
+  .buy-button:active, .primary-button:active, .recharge-submit:active, .balance-recharge:active,
+  .order-filter-pill:active { transform: none !important; }
+}

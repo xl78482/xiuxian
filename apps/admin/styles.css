@@ -255,3 +255,68 @@ td code { font: 11px ui-monospace, monospace; }
 .category-main strong { display: block; color: var(--ink); font-size: 14px; }
 .category-main small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
 .category-row .status { flex: 0 0 auto; }
+
+/* =========================================================
+   v1.0.20 Smooth motion layer
+   后台丝滑体验：视图切换过渡 / 表单与弹窗动画 /
+   按压反馈 / 行 hover / 减少动画偏好适配
+   ========================================================= */
+
+html { -webkit-text-size-adjust: 100%; }
+body {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+}
+button {
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+@keyframes view-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes pop-in { from { opacity: 0; transform: translateY(8px) scale(.97); } to { opacity: 1; transform: none; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* 视图切换：每次渲染轻量淡入，切换页面时更连贯 */
+.content { animation: view-in .22s ease; }
+
+/* 表单面板展开 / 收起动画（display:none → grid 时动画自动播放） */
+.form-panel:not([hidden]) { animation: view-in .26s ease; }
+
+/* 调整余额弹窗 */
+.modal-backdrop { animation: fade-in .2s ease; }
+.modal-card { animation: pop-in .26s cubic-bezier(.22,1,.36,1); }
+
+/* 按钮按压反馈 */
+.outline-button, .solid-button {
+  transition: transform .15s ease, background .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+.outline-button:active, .solid-button:active { transform: scale(.97); }
+.side-nav button { transition: color .18s ease, background .18s ease, box-shadow .18s ease, transform .15s ease; }
+.side-nav button:active { transform: scale(.97); }
+
+/* 表格行 hover（数据量小时快速扫视） */
+tbody tr { transition: background .15s ease; }
+tbody tr:hover { background: #f4f7ff; }
+
+/* 卡片悬停微浮起（桌面端） */
+.kpi, .product-row, .category-row, .variant-chip {
+  transition: transform .18s ease, box-shadow .2s ease, border-color .2s ease;
+}
+@media (hover: hover) {
+  .kpi:hover, .product-row:hover, .category-row:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 28px rgba(38,57,92,.08);
+  }
+  .variant-chip:hover { border-color: #b8c8f0; transform: translateY(-1px); }
+}
+
+/* 登录框入场 */
+.login-box { animation: pop-in .32s cubic-bezier(.22,1,.36,1); }
+
+/* 减少动画偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .content, .form-panel:not([hidden]), .modal-backdrop, .modal-card, .login-box { animation: none !important; }
+  .outline-button, .solid-button, .side-nav button, .kpi, .product-row, .category-row, .variant-chip, tbody tr { transition: none !important; }
+  .outline-button:active, .solid-button:active, .side-nav button:active { transform: none !important; }
+}

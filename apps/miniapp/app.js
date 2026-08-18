@@ -22,7 +22,46 @@ const state = {
   activeRecharge: null,
   rechargePoll: null,
   rechargeTimer: null,
+  // 入场动画控制：仅在首次加载 / 分类切换 / 打开详情时播放，避免频繁重绘导致动画轰炸
+  catalogEnter: false,
+  detailEnter: false,
 };
+
+// 最近一次渲染的二维码内容，轮询刷新时内容未变则复用已生成的 SVG，避免每 5 秒重算一次
+let lastQrContent = null;
+let lastBalanceFen = null;
+
+function haptic(kind = 'light') {
+  try {
+    const haptics = window.Telegram?.WebApp?.HapticFeedback;
+    if (!haptics) return;
+    if (kind === 'selection') haptics.selectionChanged?.();
+    else haptics.impactOccurred?.(kind);
+  } catch { /* 震动反馈失败可忽略 */ }
+}
+
+function formatFen(fen) {
+  return `¥${(Number(fen) / 100).toFixed(2)}`;
+}
+
+function animateBalanceAmounts() {
+  const targets = [...document.querySelectorAll('[data-balance-amount]')];
+  if (!targets.length) { lastBalanceFen = null; return; }
+  const to = Number(targets[0].dataset.balance ?? 0);
+  const from = Number.isFinite(lastBalanceFen) ? lastBalanceFen : to;
+  lastBalanceFen = to;
+  const apply = (value) => { for (const el of targets) el.textContent = formatFen(value); };
+  if (from === to) { apply(to); return; }
+  const start = performance.now();
+  const duration = 480;
+  const step = (now) => {
+    const t = Math.min(1, (now - start) / duration);
+    const eased = 1 - Math.pow(1 - t, 3);
+    apply(Math.round(from + (to - from) * eased));
+    if (t < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
 
 class ApiError extends Error {
   constructor(message, status, code) {
@@ -268,14 +307,16 @@ function purchaseLabel(variant) {
   return state.publicConfig?.paymentConfigured ? '已暂停' : '待配置';
 }
 
-function productCard(product) {
+function productCard(product, index = 0, animate = false) {
   const selectedId = state.selectedVariants.get(product.id) ?? product.variants[0]?.id;
   const selected = findVariant(product, selectedId);
   const purchasable = Boolean(state.publicConfig?.paymentReady && selected && selected.stock > 0);
+  const enter = animate ? ' card-enter' : '';
+  const delay = animate ? ` style="animation-delay:${Math.min(index * 45, 450)}ms"` : '';
   return `
-    <article class="product-card">
+    <article class="product-card${enter}"${delay}>
       <button class="product-open" data-action="open-detail" data-product-id="${esc(product.id)}" aria-label="查看 ${esc(product.title)} 详情">
-        <img class="product-image" src="${productImage(product)}" alt="${esc(product.title)}" />
+        <img class="product-image" loading="lazy" decoding="async" src="${productImage(product)}" alt="${esc(product.title)}" />
         <div class="product-body">
           <div class="product-meta"><span>${esc(product.category?.name ?? '数字商品')}</span><span>已售 ${selected?.sold ?? 0}</span></div>
           <h3 class="product-title">${esc(product.title)}</h3>
@@ -292,17 +333,21 @@ function productCard(product) {
     </article>`;
 }
 
-function productDetailView(product) {
+function productDetailView(product, animate = false) {
   const selectedId = state.selectedVariants.get(product.id) ?? product.variants[0]?.id;
   const selected = findVariant(product, selectedId);
   const purchasable = Boolean(state.publicConfig?.paymentReady && selected && selected.stock > 0);
   const minPrice = Math.min(...product.variants.map((variant) => variant.priceFen));
   const totalStock = product.variants.reduce((sum, variant) => sum + variant.stock, 0);
+  const coverEnter = animate ? ' detail-enter' : '';
+  const introEnter = animate ? ' detail-enter' : '';
+  const sectionEnter = animate ? ' detail-enter' : '';
+  const sectionDelay = animate ? ' style="animation-delay:70ms"' : '';
   return `<section class="product-detail">
-    <div class="detail-cover"><img src="${productImage(product)}" alt="${esc(product.title)}" /><span>${esc(product.category?.name ?? '数字商品')}</span></div>
-    <div class="detail-intro"><div class="detail-kicker">即时交付 · 安全库存</div><h1>${esc(product.title)}</h1><p>${esc(product.description || '付款确认后，系统自动交付数字商品。')}</p><div class="detail-stats"><span><b>${selected?.sold ?? 0}</b> 已售</span><span><b>${totalStock}</b> 份库存</span><span>起价 <b>${money(minPrice)}</b></span></div></div>
-    <section class="detail-section"><div class="detail-section-title"><h2>选择规格</h2><span>${product.variants.length} 个选项</span></div><div class="detail-variants">${product.variants.map((variant) => `<button class="detail-variant ${variant.id === selectedId ? 'active' : ''} ${variant.stock < 1 ? 'sold-out' : ''}" data-action="select-detail-variant" data-product-id="${esc(product.id)}" data-variant-id="${esc(variant.id)}" ${variant.stock < 1 ? 'disabled' : ''}><span><strong>${esc(variant.name)}</strong><small>${variant.stock > 0 ? `${variant.stock} 份可售` : '暂时售罄'}</small></span><b>${money(variant.priceFen)}</b></button>`).join('')}</div></section>
-    <section class="detail-section detail-copy"><div class="detail-section-title"><h2>商品说明</h2>${icon.info}</div><p>${esc(product.instructions || '支付成功后，卡密会显示在订单详情中，请及时复制保存。')}</p></section>
+    <div class="detail-cover${coverEnter}"><img decoding="async" src="${productImage(product)}" alt="${esc(product.title)}" /><span>${esc(product.category?.name ?? '数字商品')}</span></div>
+    <div class="detail-intro${introEnter}"><div class="detail-kicker">即时交付 · 安全库存</div><h1>${esc(product.title)}</h1><p>${esc(product.description || '付款确认后，系统自动交付数字商品。')}</p><div class="detail-stats"><span><b>${selected?.sold ?? 0}</b> 已售</span><span><b>${totalStock}</b> 份库存</span><span>起价 <b>${money(minPrice)}</b></span></div></div>
+    <section class="detail-section${sectionEnter}"><div class="detail-section-title"><h2>选择规格</h2><span>${product.variants.length} 个选项</span></div><div class="detail-variants">${product.variants.map((variant) => `<button class="detail-variant ${variant.id === selectedId ? 'active' : ''} ${variant.stock < 1 ? 'sold-out' : ''}" data-action="select-detail-variant" data-product-id="${esc(product.id)}" data-variant-id="${esc(variant.id)}" ${variant.stock < 1 ? 'disabled' : ''}><span><strong>${esc(variant.name)}</strong><small>${variant.stock > 0 ? `${variant.stock} 份可售` : '暂时售罄'}</small></span><b>${money(variant.priceFen)}</b></button>`).join('')}</div></section>
+    <section class="detail-section detail-copy${sectionEnter}"${sectionDelay}><div class="detail-section-title"><h2>商品说明</h2>${icon.info}</div><p>${esc(product.instructions || '支付成功后，卡密会显示在订单详情中，请及时复制保存。')}</p></section>
     <div class="detail-buybar"><div><small>当前规格 · ${esc(selected?.name ?? '未选择')}</small><strong>${money(selected?.priceFen ?? 0)}</strong></div><button class="primary-button" data-action="open-checkout" data-product-id="${esc(product.id)}" ${!purchasable ? 'disabled' : ''}>${icon.bag}<span>${state.publicConfig?.paymentReady ? '立即购买' : state.publicConfig?.paymentConfigured ? '支付已暂停' : '支付配置中'}</span></button></div>
   </section>`;
 }
@@ -311,9 +356,9 @@ function tabIndex(tab) {
   return ['shop', 'orders', 'profile'].indexOf(tab);
 }
 
-function renderMainViews(transition = null) {
+function renderMainViews(transition = null, animateCards = false) {
   const tabs = [
-    ['shop', shopView],
+    ['shop', () => shopView(animateCards)],
     ['orders', ordersView],
     ['profile', profileView],
   ];
@@ -334,18 +379,19 @@ function renderTabbar(transition = null) {
   return `<nav class="mini-tabbar" aria-label="主导航"><div class="mini-tabbar-inner"><span class="mini-tabbar-slider" data-tab-slider aria-hidden="true" style="transform:translate3d(${initialIndex * 100}%,0,0)"></span>${tabs.map(([tab, label, glyph]) => `<button class="mini-tab ${state.activeTab === tab ? 'active' : ''}" data-action="switch-tab" data-tab="${tab}"><span class="mini-tab-icon">${glyph}</span><span class="mini-tab-label">${label}</span>${tab === 'orders' ? `<b>${orderCount}</b>` : ''}</button>`).join('')}</div></nav>`;
 }
 
-function shopView() {
+function shopView(animate = false) {
   const categoryMap = new Map();
   for (const product of state.catalog) if (product.category) categoryMap.set(product.category.id, product.category);
   const products = state.catalog.filter((product) => state.selectedCategory === 'all' || product.category?.id === state.selectedCategory);
+  const pillDelay = (index) => animate ? ` style="animation-delay:${Math.min(30 + index * 40, 400)}ms"` : '';
   return `<section class="shop-view">
-    <div class="shop-banner"><div><span>INSTANT DELIVERY</span><h2>今天想补充什么？</h2><p>${state.publicConfig?.paymentReady ? `${String(state.publicConfig.paymentToken ?? 'USDT').split('-').at(-1).toUpperCase()} · ${String(state.publicConfig.paymentChain ?? 'TRON').toUpperCase()} · 自动发卡` : '支付渠道配置中 · 暂不可下单'}</p></div><div class="banner-mark">XX</div></div>
+    <div class="shop-banner${animate ? ' banner-enter' : ''}"><div><span>INSTANT DELIVERY</span><h2>今天想补充什么？</h2><p>${state.publicConfig?.paymentReady ? `${String(state.publicConfig.paymentToken ?? 'USDT').split('-').at(-1).toUpperCase()} · ${String(state.publicConfig.paymentChain ?? 'TRON').toUpperCase()} · 自动发卡` : '支付渠道配置中 · 暂不可下单'}</p></div><div class="banner-mark">XX</div></div>
     <div class="category-strip" role="tablist" aria-label="商品分类">
-      <button class="category-pill ${state.selectedCategory === 'all' ? 'active' : ''}" data-action="filter" data-category="all"><span class="category-glyph">✦</span><b>全部</b><small>${state.catalog.length}</small></button>
-      ${[...categoryMap.values()].map((category, index) => `<button class="category-pill ${state.selectedCategory === category.id ? 'active' : ''}" data-action="filter" data-category="${esc(category.id)}"><span class="category-glyph">${String(index + 1).padStart(2, '0')}</span><b>${esc(category.name)}</b><small>${state.catalog.filter((product) => product.category?.id === category.id).length}</small></button>`).join('')}
+      <button class="category-pill ${state.selectedCategory === 'all' ? 'active' : ''}${animate ? ' pill-enter' : ''}" data-action="filter" data-category="all"${pillDelay(0)}><span class="category-glyph">✦</span><b>全部</b><small>${state.catalog.length}</small></button>
+      ${[...categoryMap.values()].map((category, index) => `<button class="category-pill ${state.selectedCategory === category.id ? 'active' : ''}${animate ? ' pill-enter' : ''}" data-action="filter" data-category="${esc(category.id)}"${pillDelay(index + 1)}><span class="category-glyph">${String(index + 1).padStart(2, '0')}</span><b>${esc(category.name)}</b><small>${state.catalog.filter((product) => product.category?.id === category.id).length}</small></button>`).join('')}
     </div>
     <div class="native-section-title"><div><span class="section-eyebrow">COLLECTION</span><h2>精选商品</h2></div><span>${products.length} 件</span></div>
-    <div class="product-grid">${products.length ? products.map(productCard).join('') : `<div class="native-empty compact">${icon.package}<h2>没有匹配商品</h2><p>切换分类看看其他商品</p></div>`}</div>
+    <div class="product-grid">${products.length ? products.map((product, index) => productCard(product, index, animate)).join('') : `<div class="native-empty compact">${icon.package}<h2>没有匹配商品</h2><p>切换分类看看其他商品</p></div>`}</div>
   </section>`;
 }
 
@@ -354,7 +400,9 @@ function orderFilterStrip() {
 }
 
 function ordersView() {
-  if (state.ordersLoading) return '<div class="native-loading"><span></span><p>正在加载订单</p></div>';
+  if (state.ordersLoading) {
+    return `<section class="orders-view"><div class="order-filter">${ORDER_GROUPS.map((group) => `<button class="order-filter-pill ${state.ordersFilter === group.key ? 'active' : ''}" data-action="order-filter" data-filter="${group.key}"><b>${group.label}</b><small>·</small></button>`).join('')}</div><div class="skeleton-list">${'<div class="skeleton-card"><div class="skeleton-block thumb"></div><div class="skeleton-lines"><div class="skeleton-block line w60"></div><div class="skeleton-block line w40"></div><div class="skeleton-block line w30"></div></div></div>'.repeat(4)}</div></section>`;
+  }
   if (!state.orders?.length) return `<section class="native-empty">${icon.package}<h2>还没有订单</h2><p>选购数字商品后，订单会显示在这里</p><button data-action="switch-tab" data-tab="shop">去逛逛</button></section>`;
   const group = ORDER_GROUPS.find((g) => g.key === state.ordersFilter) ?? ORDER_GROUPS[0];
   const list = filterOrders(group.statuses);
@@ -382,7 +430,7 @@ function profileView() {
         <div class="profile-info"><h2>${esc(displayName)}</h2>${username ? `<p class="profile-username">${esc(username)}</p>` : ''}<small class="profile-id">Telegram ID：${esc(state.user?.telegramId ?? '')}</small></div>
         <span class="profile-status ${online ? 'online' : 'offline'}"><i class="status-dot"></i>${online ? '已连接' : '未连接'}</span>
       </div>
-      <div class="capsule-balance"><div class="balance-label">账户余额</div><div class="balance-amount"><small>￥</small>${money(balance).slice(1)}</div><button class="balance-recharge" data-action="open-recharge">${icon.wallet}<span>充值</span></button></div>
+      <div class="capsule-balance"><div class="balance-label">账户余额</div><div class="balance-amount"><small>￥</small><span data-balance-amount data-balance="${balance}">${money(balance).slice(1)}</span></div><button class="balance-recharge" data-action="open-recharge">${icon.wallet}<span>充值</span></button></div>
     </div>
     <div class="native-menu">
       <button data-action="switch-tab" data-tab="orders"><span>${icon.receipt}<b>我的订单</b></span>${icon.chevron}</button>
@@ -392,19 +440,19 @@ function profileView() {
   </section>`;
 }
 
-function rechargeView() {
+function rechargeView(animate = false) {
   const balance = Number(state.user?.balanceFen ?? 0);
   const entries = state.balanceEntries ?? [];
   const active = state.activeRecharge;
   if (active) {
-    return `<section class="recharge-view">
-      <div class="recharge-balance"><span>当前余额</span><strong>${money(balance)}</strong></div>
+    return `<section class="recharge-view" id="recharge-root">
+      <div class="recharge-balance"><span>当前余额</span><strong data-balance-amount data-balance="${balance}">${money(balance)}</strong></div>
       ${rechargePaymentMarkup(active)}
     </section>`;
   }
-  return `<section class="recharge-view">
-    <div class="recharge-balance"><span>当前余额</span><strong>${money(balance)}</strong></div>
-    <div class="recharge-card">
+  return `<section class="recharge-view" id="recharge-root">
+    <div class="recharge-balance"><span>当前余额</span><strong data-balance-amount data-balance="${balance}">${money(balance)}</strong></div>
+    <div class="recharge-card${animate ? ' recharge-enter' : ''}">
       <h3>充值</h3>
       <p class="recharge-tip">输入充值金额，确认后将出示收款二维码，到账后余额自动增加。</p>
       <input name="recharge-amount" class="recharge-input" type="number" inputmode="decimal" min="0.01" step="0.01" placeholder="充值金额（元）" aria-label="充值金额" />
@@ -506,10 +554,16 @@ function renderCatalog() {
   state.tabTransition = null;
   const detail = state.detailProductId ? findProduct(state.detailProductId) : null;
   const inRecharge = state.showRecharge;
+  const animateCards = state.catalogEnter;
+  const animateDetail = state.detailEnter;
+  state.catalogEnter = false;
+  state.detailEnter = false;
+  // 重渲染前记录滚动位置，重绘后恢复，避免在长列表中切换规格/分类时页面跳动
+  const scrollY = window.scrollY;
   let content;
-  if (detail) content = productDetailView(detail);
-  else if (inRecharge) content = rechargeView();
-  else content = renderMainViews(transition);
+  if (detail) content = productDetailView(detail, animateDetail);
+  else if (inRecharge) content = rechargeView(animateCards);
+  else content = renderMainViews(transition, animateCards);
   const prevHeight = document.querySelector('.mini-tab-viewport')?.style.height ?? '';
   app.innerHTML = `<div class="app-shell native-shell ${detail ? 'detail-shell' : ''}">${renderHeader()}<main class="mini-content">${content}</main>${renderDrawer()}<section class="order-panel" id="order-panel"></section>${detail || inRecharge ? '' : renderTabbar(transition)}<div class="toast" id="toast" role="status"></div></div>`;
   const viewport = document.querySelector('.mini-tab-viewport');
@@ -520,6 +574,8 @@ function renderCatalog() {
   }
   syncTabViewportHeight();
   playTabTransition(transition);
+  window.scrollTo(0, scrollY);
+  animateBalanceAmounts();
 }
 
 function renderDrawer() {
@@ -540,6 +596,23 @@ function renderDrawer() {
         ${message ? `<div class="notice error">${esc(message)}</div>` : '<div class="notice">订单将预留对应库存。DujiaoPay 确认到账后，系统会自动发放卡密。</div>'}
       </aside>
     </div>`;
+}
+
+function closeCheckout() {
+  // 先播放收起动画（遮罩淡出 + 抽屉下滑），动画结束再移除，避免瞬间消失
+  const backdrop = document.querySelector('#drawer');
+  if (backdrop?.classList.contains('open')) {
+    backdrop.classList.remove('open');
+    setTimeout(() => {
+      state.checkout = null;
+      state.checkoutIdempotencyKey = null;
+      renderCatalog();
+    }, 260);
+  } else {
+    state.checkout = null;
+    state.checkoutIdempotencyKey = null;
+    renderCatalog();
+  }
 }
 
 function paymentMethodLabel(method) {
@@ -634,10 +707,13 @@ function stopPaymentTimer() {
   state.paymentTimer = null;
 }
 
-function renderPaymentQr(order) {
+function renderPaymentQr(order, force = false) {
   const target = document.querySelector('#payment-qr');
   const instructions = order.payment?.paymentInstructions;
   if (!target || !instructions?.qrContent) return;
+  // 内容未变化且页面上已有二维码时跳过重建（轮询刷新复用，避免每 5 秒重算）
+  if (!force && lastQrContent === instructions.qrContent && target.querySelector('svg')) return;
+  lastQrContent = instructions.qrContent;
   if (typeof window.qrcode !== 'function') {
     target.textContent = '二维码组件加载失败，请刷新页面。';
     return;
@@ -682,12 +758,12 @@ function startPaymentTimer(order) {
   state.paymentTimer = setInterval(tick, 1000);
 }
 
-function setupPaymentView(order) {
+function setupPaymentView(order, forceQr = false) {
   if (!order.payment?.paymentInstructions || !['pending_payment', 'payment_confirming'].includes(order.status)) {
     stopPaymentTimer();
     return;
   }
-  renderPaymentQr(order);
+  renderPaymentQr(order, forceQr);
   startPaymentTimer(order);
 }
 
@@ -699,8 +775,7 @@ async function openOrder(orderNo, replaceHistory = true) {
   panel.innerHTML = '<article class="order-card"><p>正在读取订单…</p></article>';
   try {
     const order = await api(`/api/orders/${encodeURIComponent(orderNo)}`);
-    panel.innerHTML = orderPanelMarkup(order);
-    setupPaymentView(order);
+    updateOrderPanel(order, true);
     if (replaceHistory) history.replaceState({}, '', `/orders/${order.orderNo}`);
     if (['pending_payment', 'payment_confirming', 'paid', 'fulfilling'].includes(order.status)) {
       state.orderPoll = setInterval(() => void refreshOrder(order.orderNo), 5000);
@@ -710,13 +785,28 @@ async function openOrder(orderNo, replaceHistory = true) {
   }
 }
 
+function updateOrderPanel(order, forceQr = false) {
+  const panel = document.querySelector('#order-panel');
+  if (!panel) return;
+  const scrollTop = panel.scrollTop;
+  // 轮询刷新前保留当前二维码 SVG，内容未变时直接复用，避免每 5 秒重算一次
+  const qrSvg = document.querySelector('#payment-qr svg')?.outerHTML ?? null;
+  const qrContent = order.payment?.paymentInstructions?.qrContent ?? null;
+  panel.innerHTML = orderPanelMarkup(order);
+  panel.scrollTop = scrollTop;
+  const target = document.querySelector('#payment-qr');
+  if (!forceQr && qrSvg && target && !target.querySelector('svg') && lastQrContent === qrContent) {
+    target.innerHTML = qrSvg;
+  }
+  setupPaymentView(order, forceQr);
+}
+
 async function refreshOrder(orderNo) {
   const panel = document.querySelector('#order-panel');
   if (!panel?.classList.contains('open')) return;
   try {
     const order = await api(`/api/orders/${encodeURIComponent(orderNo)}`);
-    panel.innerHTML = orderPanelMarkup(order);
-    setupPaymentView(order);
+    updateOrderPanel(order, false);
     if (['completed', 'payment_expired', 'canceled', 'fulfillment_failed'].includes(order.status)) clearInterval(state.orderPoll);
   } catch { /* Keep the current order view during a transient network failure. */ }
 }
@@ -729,7 +819,8 @@ function closeOrder() {
   history.replaceState({}, '', '/');
   if (state.activeTab === 'orders') {
     state.orders = null;
-    void loadOrders(true);
+    // 等待关闭过渡播放完再刷新列表，避免动画被重建打断
+    setTimeout(() => void loadOrders(true), 200);
   }
 }
 
@@ -752,6 +843,8 @@ function openDetail(productId) {
   const product = findProduct(productId);
   if (!product) return;
   state.detailProductId = product.id;
+  state.detailEnter = true;
+  haptic('light');
   history.pushState({}, '', `/products/${encodeURIComponent(product.slug)}`);
   renderCatalog();
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -770,12 +863,15 @@ async function switchTab(tab) {
   state.showRecharge = false;
   clearInterval(state.orderPoll);
   stopPaymentTimer();
+  // 离开充值页时停止充值轮询与倒计时（activeRecharge 保留，回来可继续查看）
+  clearInterval(state.rechargePoll);
+  clearInterval(state.rechargeTimer);
   state.activeTab = tab;
   if (previousTab !== tab) state.tabTransition = { from: tabIndex(previousTab), to: tabIndex(tab) };
   if (tab === 'orders' && !state.orders) state.ordersLoading = true;
   history.replaceState({}, '', '/');
   renderCatalog();
-  window.Telegram?.WebApp?.HapticFeedback?.selectionChanged?.();
+  haptic('selection');
   if (tab === 'orders') await loadOrders(false, { renderLoading: false });
 }
 
@@ -833,6 +929,8 @@ function renderPaymentQrFor(recharge) {
   const target = document.querySelector('#payment-qr');
   const instructions = recharge.payment?.paymentInstructions;
   if (!target || !instructions?.qrContent) return;
+  if (lastQrContent === instructions.qrContent && target.querySelector('svg')) return;
+  lastQrContent = instructions.qrContent;
   if (typeof window.qrcode !== 'function') { target.textContent = '二维码组件加载失败，请刷新页面。'; return; }
   try {
     const qr = window.qrcode(0, 'M');
@@ -862,13 +960,25 @@ function startRechargeCountdown(recharge) {
 async function pollRecharge(rechargeNo) {
   try {
     const data = await api(`/api/me/recharge/${rechargeNo}`);
-    if (data?.rechargeNo) state.activeRecharge = data;
-    renderCatalog();
-    if (['paid', 'payment_expired', 'canceled'].includes(data?.status)) {
+    if (!data?.rechargeNo) return;
+    state.activeRecharge = data;
+    const root = document.querySelector('#recharge-root');
+    if (root) {
+      // 仅局部刷新充值视图：保留二维码 SVG、不重建整个页面
+      const svg = document.querySelector('#payment-qr svg')?.outerHTML ?? null;
+      root.outerHTML = rechargeView();
+      const target = document.querySelector('#payment-qr');
+      if (svg && target && !target.querySelector('svg') && lastQrContent === (data.payment?.paymentInstructions?.qrContent ?? null)) {
+        target.innerHTML = svg;
+      }
+      setupRechargePaymentView(data);
+    }
+    if (['paid', 'payment_expired', 'canceled'].includes(data.status)) {
       clearInterval(state.rechargePoll);
       clearInterval(state.rechargeTimer);
       await refreshUserAndBalance();
-    } else if (data?.payment?.paymentInstructions && !document.querySelector('#payment-qr')) {
+      if (root) renderCatalog();
+    } else if (data.payment?.paymentInstructions && !document.querySelector('#payment-qr')) {
       setupRechargePaymentView(data);
     }
   } catch { /* transient errors keep polling */ }
@@ -918,6 +1028,7 @@ async function submitCheckout() {
   if (!item) return;
   const button = document.querySelector('[data-action="submit-checkout"]');
   button?.setAttribute('disabled', '');
+  haptic('medium');
   try {
     const idempotencyKey = state.checkoutIdempotencyKey ?? `buy_${crypto.randomUUID().replaceAll('-', '')}`;
     state.checkoutIdempotencyKey = idempotencyKey;
@@ -955,6 +1066,8 @@ async function onClick(event) {
   }
   if (action === 'filter') {
     state.selectedCategory = actionElement.dataset.category;
+    state.catalogEnter = true;
+    haptic('selection');
     renderCatalog();
     return;
   }
@@ -972,6 +1085,7 @@ async function onClick(event) {
   if (action === 'open-recharge') {
     state.showRecharge = true;
     state.balanceEntries = null;
+    state.catalogEnter = true;
     history.pushState({}, '', '/wallet');
     renderCatalog();
     void loadBalance();
@@ -998,6 +1112,7 @@ async function onClick(event) {
   }
   if (action === 'select-detail-variant') {
     state.selectedVariants.set(actionElement.dataset.productId, actionElement.dataset.variantId);
+    haptic('selection');
     renderCatalog();
     return;
   }
@@ -1008,14 +1123,12 @@ async function onClick(event) {
     if (!variant || variant.stock < 1) return showToast('该规格库存不足。');
     state.checkoutIdempotencyKey = null;
     state.checkout = { product, variant, quantity: 1 };
+    haptic('light');
     renderCatalog();
     return;
   }
   if (action === 'close-checkout') {
-    state.checkout = null;
-    state.checkoutIdempotencyKey = null;
-    renderCatalog();
-    return;
+    return closeCheckout();
   }
   if (action === 'quantity-minus' || action === 'quantity-plus') {
     const item = state.checkout;
@@ -1023,6 +1136,7 @@ async function onClick(event) {
     const direction = action === 'quantity-plus' ? 1 : -1;
     const maximum = Math.min(item.variant.maxPerOrder, item.variant.stock);
     item.quantity = Math.max(1, Math.min(maximum, item.quantity + direction));
+    haptic('selection');
     renderCatalog();
     return;
   }

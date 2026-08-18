@@ -269,6 +269,10 @@ function render() {
     const active = document.querySelector('.side-nav button.active');
     const navigation = active?.parentElement;
     if (active && navigation) navigation.scrollTo({ left: active.offsetLeft - (navigation.clientWidth - active.offsetWidth) / 2, behavior: 'auto' });
+    // 余额调整弹窗打开时自动聚焦金额输入框
+    if (state.balanceTarget) {
+      document.querySelector('[name="balance-delta"]')?.focus();
+    }
   });
 }
 
