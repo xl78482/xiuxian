@@ -334,7 +334,7 @@ function renderHeader() {
         <div><h1>${title}</h1>${subtitle ? `<p>${subtitle}</p>` : ''}</div>
       </div>
       <div class="mini-header-actions">
-        ${state.activeTab === 'orders' ? `<button class="mini-icon-button" data-action="refresh-orders" title="刷新订单" aria-label="刷新订单">${icon.refresh}</button>` : ''}
+        ${state.activeTab === 'orders' ? `<button class="mini-icon-button mini-refresh-button" data-action="refresh-orders" title="刷新订单" aria-label="刷新订单">${icon.refresh}</button>` : ''}
       </div>
     </header>`;
 }
@@ -423,12 +423,13 @@ function shopView(animate = false) {
   for (const product of state.catalog) if (product.category) categoryMap.set(product.category.id, product.category);
   const products = state.catalog.filter((product) => state.selectedCategory === 'all' || product.category?.id === state.selectedCategory);
   return `<section class="shop-view">
+    <div class="shop-intro"><div><span class="shop-intro-kicker">DIGITAL SHELF</span><strong>精选数字商品</strong></div><small>即时交付 · 安全库存</small></div>
     <div class="category-strip" role="tablist" aria-label="商品分类">
       <button class="category-capsule ${state.selectedCategory === 'all' ? 'active' : ''}" data-action="filter" data-category="all">全部<small>${state.catalog.length}</small></button>
       ${[...categoryMap.values()].map((category) => `<button class="category-capsule ${state.selectedCategory === category.id ? 'active' : ''}" data-action="filter" data-category="${esc(category.id)}">${esc(category.name)}<small>${state.catalog.filter((product) => product.category?.id === category.id).length}</small></button>`).join('')}
     </div>
-    <div class="native-section-title"><div><span class="section-eyebrow">COLLECTION</span><h2>精选商品</h2></div><span>${products.length} 件</span></div>
-    <div class="product-grid">${products.length ? products.map((product, index) => productCard(product, index, animate)).join('') : `<div class="native-empty compact">${icon.package}<h2>没有匹配商品</h2><p>切换分类看看其他商品</p></div>`}</div>
+    <div class="native-section-title"><div><span class="section-eyebrow">CATALOG</span><h2>商品列表</h2></div><span>${products.length} 件</span></div>
+    <div class="product-grid">${products.length ? products.map((product, index) => productCard(product, index, animate)).join('') : `<div class="native-empty compact shop-empty-state">${icon.package}<h2>暂时没有商品</h2><p>当前分类还没有可展示的数字商品</p><button data-action="reload-catalog">重新加载</button></div>`}</div>
   </section>`;
 }
 
@@ -437,10 +438,11 @@ function orderFilterStrip() {
 }
 
 function ordersView() {
+  const filters = orderFilterStrip();
   if (state.ordersLoading) {
-    return `<section class="orders-view"><div class="order-filter">${ORDER_GROUPS.map((group) => `<button class="order-filter-pill ${state.ordersFilter === group.key ? 'active' : ''}" data-action="order-filter" data-filter="${group.key}"><b>${group.label}</b><small>·</small></button>`).join('')}</div><div class="skeleton-list">${'<div class="skeleton-card"><div class="skeleton-block thumb"></div><div class="skeleton-lines"><div class="skeleton-block line w60"></div><div class="skeleton-block line w40"></div><div class="skeleton-block line w30"></div></div></div>'.repeat(4)}</div></section>`;
+    return `<section class="orders-view">${filters}<div class="skeleton-list">${'<div class="skeleton-card"><div class="skeleton-block thumb"></div><div class="skeleton-lines"><div class="skeleton-block line w60"></div><div class="skeleton-block line w40"></div><div class="skeleton-block line w30"></div></div></div>'.repeat(4)}</div></section>`;
   }
-  if (!state.orders?.length) return `<section class="native-empty">${icon.package}<h2>还没有订单</h2><p>选购数字商品后，订单会显示在这里</p><button data-action="switch-tab" data-tab="shop">去逛逛</button></section>`;
+  if (!state.orders?.length) return `<section class="orders-view">${filters}<div class="native-empty orders-empty-state">${icon.package}<h2>还没有订单</h2><p>选购数字商品后，订单会显示在这里</p><button data-action="switch-tab" data-tab="shop">去逛逛</button></div></section>`;
   const group = ORDER_GROUPS.find((g) => g.key === state.ordersFilter) ?? ORDER_GROUPS[0];
   const list = filterOrders(group.statuses);
   const body = list.length
@@ -472,7 +474,7 @@ function profileView() {
     <div class="native-menu">
       <button data-action="switch-tab" data-tab="orders"><span>${icon.receipt}<b>我的订单</b></span>${icon.chevron}</button>
       ${state.publicConfig?.supportUrl ? `<button data-action="open-support"><span>${icon.support}<b>联系售后</b></span>${icon.chevron}</button>` : ''}
-      <div><span>${icon.shield}<b>当前版本</b></span><small>v${esc(state.publicConfig?.version ?? '1.0.32')}</small></div>
+      <div><span>${icon.shield}<b>当前版本</b></span><small>v${esc(state.publicConfig?.version ?? '1.0.33')}</small></div>
     </div>
   </section>`;
 }
@@ -1088,6 +1090,26 @@ async function submitCheckout() {
   }
 }
 
+async function reloadCatalog() {
+  state.catalogEnter = true;
+  try {
+    state.catalog = await api('/api/catalog');
+    const categoryIds = new Set(state.catalog.map((product) => product.category?.id).filter(Boolean));
+    if (state.selectedCategory !== 'all' && !categoryIds.has(state.selectedCategory)) state.selectedCategory = 'all';
+    for (const product of state.catalog) {
+      const selected = state.selectedVariants.get(product.id);
+      if (!product.variants.some((variant) => variant.id === selected)) {
+        const initial = product.variants.find((variant) => variant.stock > 0) ?? product.variants[0];
+        state.selectedVariants.set(product.id, initial?.id);
+      }
+    }
+    renderCatalog();
+    showToast('商品目录已刷新。');
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : '商品目录刷新失败，请稍后重试。');
+  }
+}
+
 async function onClick(event) {
   const actionElement = event.target.closest('[data-action]');
   if (!actionElement) return;
@@ -1101,6 +1123,7 @@ async function onClick(event) {
     location.reload();
     return;
   }
+  if (action === 'reload-catalog') return reloadCatalog();
   if (action === 'filter') {
     state.selectedCategory = actionElement.dataset.category;
     state.catalogEnter = true;
