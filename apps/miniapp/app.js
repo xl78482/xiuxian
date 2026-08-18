@@ -229,7 +229,7 @@ function renderTabbar() {
     ['orders', '订单', icon.receipt],
     ['profile', '我的', icon.user],
   ];
-  return `<nav class="mini-tabbar" aria-label="主导航">${tabs.map(([tab, label, glyph]) => `<button class="mini-tab ${state.activeTab === tab ? 'active' : ''}" data-action="switch-tab" data-tab="${tab}">${glyph}<span>${label}</span>${tab === 'orders' ? `<b>${orderCount}</b>` : ''}</button>`).join('')}</nav>`;
+  return `<nav class="mini-tabbar" aria-label="主导航"><div class="mini-tabbar-inner">${tabs.map(([tab, label, glyph]) => `<button class="mini-tab ${state.activeTab === tab ? 'active' : ''}" data-action="switch-tab" data-tab="${tab}"><span class="mini-tab-icon">${glyph}</span><span class="mini-tab-label">${label}</span>${tab === 'orders' ? `<b>${orderCount}</b>` : ''}</button>`).join('')}</div></nav>`;
 }
 
 function shopView() {

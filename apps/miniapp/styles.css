@@ -475,3 +475,52 @@ html, body { background: var(--mini-bg); color: var(--mini-ink); }
 .detail-buybar .primary-button svg { margin-right: 5px; }
 @media (min-width: 720px) { .detail-cover { border-radius: 0 0 18px 18px; } .detail-buybar { left: 50%; width: min(920px,100%); transform: translateX(-50%); } }
 @media (max-width: 420px) { .product-actions { padding-left: 12px; } .detail-buybar .primary-button { min-width: 122px; padding: 0 12px; } }
+
+/* v1.0.9 storefront polish: floating native navigation */
+:root {
+  --mini-bg: #f4f6fa;
+  --mini-ink: #172033;
+  --mini-muted: #7e899b;
+  --mini-line: #e5e9f0;
+  --mini-blue: #356fe5;
+  --mini-blue-dark: #2858bf;
+  --mini-card: #ffffff;
+}
+html, body { background: var(--mini-bg); }
+.native-shell { background: var(--mini-bg); }
+.mini-content { padding-bottom: calc(104px + env(safe-area-inset-bottom)); }
+.mini-header { min-height: 72px; padding-left: 18px; padding-right: 18px; border-bottom: 1px solid rgba(225,230,238,.82); background: rgba(255,255,255,.88); box-shadow: 0 4px 18px rgba(26,39,66,.035); }
+.mini-logo { width: 40px; height: 40px; border-radius: 13px; background: linear-gradient(145deg, #467ff0, #2d61d3); box-shadow: 0 8px 17px rgba(53,111,229,.22); }
+.mini-header h1 { font-size: 22px; letter-spacing: -.02em; }
+.mini-header p { color: #8a95a6; }
+.mini-icon-button { width: 40px; height: 40px; color: #657186; border: 1px solid #e8ecf2; background: #f7f9fc; transition: transform .18s ease, background .18s ease, color .18s ease; }
+.mini-icon-button:active { transform: scale(.94); background: #edf3ff; color: var(--mini-blue); }
+.mini-icon-button svg { width: 18px; height: 18px; stroke-width: 1.75; }
+
+.mini-tabbar { right: 12px; bottom: calc(10px + env(safe-area-inset-bottom)); left: 12px; display: block; min-height: 0; padding: 0; border: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
+.mini-tabbar-inner { display: grid; grid-template-columns: repeat(3, 1fr); align-items: stretch; min-height: 67px; padding: 7px; border: 1px solid rgba(225,230,238,.96); border-radius: 22px; background: rgba(255,255,255,.94); box-shadow: 0 10px 28px rgba(30,45,76,.13), 0 2px 6px rgba(30,45,76,.05); backdrop-filter: blur(18px); }
+.mini-tab { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-width: 0; min-height: 51px; padding: 4px 6px; border: 0; border-radius: 16px; color: #99a3b2; background: transparent; font-size: 10px; font-weight: 600; transition: color .18s ease, background .18s ease, transform .18s ease; }
+.mini-tab:active { transform: scale(.96); }
+.mini-tab-icon { width: 31px; height: 27px; display: grid; place-items: center; border-radius: 10px; transition: background .18s ease, color .18s ease, transform .18s ease; }
+.mini-tab svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; }
+.mini-tab-label { line-height: 1; }
+.mini-tab.active { color: var(--mini-blue); background: #f1f5ff; }
+.mini-tab.active .mini-tab-icon { color: #fff; background: var(--mini-blue); box-shadow: 0 5px 10px rgba(53,111,229,.24); transform: translateY(-1px); }
+.mini-tab.active .mini-tab-label { font-weight: 800; }
+.mini-tab b { position: absolute; top: 3px; left: calc(50% + 9px); min-width: 17px; height: 17px; padding: 0 4px; border: 2px solid #fff; border-radius: 999px; color: #fff; background: #f06458; font-size: 9px; line-height: 13px; box-shadow: 0 2px 5px rgba(240,100,88,.24); }
+
+.shop-banner { background: linear-gradient(135deg, #386fdf 0%, #315fc8 100%); box-shadow: 0 14px 28px rgba(46,83,164,.14); }
+.shop-view .filter.active { background: var(--mini-blue); }
+.native-shell .product-card { border-color: #e7ebf1; box-shadow: 0 7px 18px rgba(28,42,67,.05); }
+.native-shell .buy-button { background: var(--mini-blue); }
+.native-shell .buy-button:hover { background: var(--mini-blue-dark); }
+
+@media (min-width: 720px) {
+  .mini-tabbar { right: auto; bottom: 16px; left: 50%; width: min(500px, calc(100% - 32px)); transform: translateX(-50%); }
+  .mini-tabbar-inner { min-height: 70px; }
+}
+@media (max-width: 420px) {
+  .mini-tabbar { right: 9px; left: 9px; }
+  .mini-tabbar-inner { border-radius: 20px; }
+  .mini-tab { border-radius: 14px; }
+}
