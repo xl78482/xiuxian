@@ -580,15 +580,22 @@ html, body { background: var(--mini-bg); }
 .native-shell .buy-button { height: 35px; border-radius: 11px; background: var(--mini-blue); box-shadow: 0 5px 11px rgba(83,109,243,.18); }
 
 .profile-view { padding-top: 14px; }
-.profile-capsule { position: relative; overflow: hidden; padding: 22px 22px 0; border: 1px solid #e8ebf2; border-radius: 30px; background: linear-gradient(120deg,#fff 0%,#fdfdff 100%); box-shadow: 0 12px 30px rgba(36,48,76,.07); }
-.capsule-row { display: flex; align-items: center; gap: 15px; padding-bottom: 18px; }
-.profile-avatar { width: 72px; height: 72px; flex-basis: 72px; border: 5px solid #eef1ff; background: linear-gradient(145deg,#6680fa,#465dde); box-shadow: none; }
-.profile-info { min-width: 0; flex: 1; line-height: 1.35; }
-.profile-capsule h2 { margin: 0; color: #202a3e; font-size: 20px; letter-spacing: -.02em; line-height: 1.3; }
-.profile-capsule .profile-username { margin: 3px 0 0; color: #8b96a8; font-size: 12px; line-height: 1.4; }
-.profile-id { display: block; margin-top: 3px; color: #a2aaba; font: 800 9px ui-monospace,monospace; letter-spacing: .04em; line-height: 1.4; }
-.profile-status { margin-left: auto; align-self: flex-start; padding: 6px 11px; border-radius: 999px; color: #3a9c7a; background: #eaf8f1; font-size: 10px; font-weight: 800; white-space: nowrap; }
-.capsule-balance { display: flex; align-items: center; gap: 14px; margin: 0 -22px; padding: 16px 22px; border-top: 1px solid #eef0f5; background: linear-gradient(135deg,#f7f8ff 0%,#eef1ff 100%); }
+.profile-capsule { position: relative; overflow: hidden; padding: 22px 20px 0; border: 1px solid #e6eaf3; border-radius: 30px; background: linear-gradient(180deg,#fbfcff 0%,#eef3ff 55%,#dde7ff 100%); box-shadow: 0 16px 34px rgba(29,42,74,.10); }
+.capsule-balance { background: transparent; }
+.capsule-row { display: flex; align-items: center; gap: 16px; padding: 1px 2px 12px; }
+.profile-avatar { width: 96px; height: 96px; flex-basis: 96px; border: 4px solid #fff; background: linear-gradient(145deg,#6c84ff,#4a63e8); box-shadow: 0 8px 18px rgba(74,99,232,.22); }
+.profile-info { min-width: 0; flex: 1; line-height: 1.4; }
+.profile-capsule h2 { margin: 0; color: #1c2740; font-size: 22px; letter-spacing: -.02em; line-height: 1.25; }
+.profile-capsule .profile-username { margin: 3px 0 0; color: #8b96a8; font-size: 13px; line-height: 1.4; }
+.profile-id { display: block; margin-top: 6px; color: #8792a6; font: 600 10px ui-monospace,monospace; letter-spacing: .02em; line-height: 1.5; }
+.profile-status { margin-left: auto; align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 999px; border: 1px solid transparent; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.profile-status.online { color: #2f9e75; background: rgba(233,250,243,.92); border-color: rgba(47,158,117,.18); }
+.profile-status.offline { color: #d95c4b; background: rgba(255,238,235,.92); border-color: rgba(217,92,75,.18); }
+.profile-status .status-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; }
+.profile-status.online .status-dot { background: #2fbf86; box-shadow: 0 0 0 0 rgba(47,191,134,.5); animation: status-pulse 1.6s ease-out infinite; }
+.profile-status.offline .status-dot { background: #e85b48; box-shadow: 0 0 0 0 rgba(232,91,72,.5); animation: status-pulse 1.6s ease-out infinite; }
+@keyframes status-pulse { 0% { box-shadow: 0 0 0 0 rgba(0,0,0,0); } 70% { box-shadow: 0 0 0 7px rgba(0,0,0,0); } 100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); } }
+.capsule-balance { display: flex; align-items: center; gap: 14px; margin: 0 -20px; padding: 16px 20px; border-top: 1px dashed rgba(128,145,190,.28); background: transparent; }
 .native-menu { margin-top: 18px; border: 1px solid #e8ebf2; border-radius: 21px; box-shadow: 0 8px 20px rgba(36,48,76,.035); }
 .native-menu button, .native-menu a, .native-menu > div { min-height: 58px; padding: 0 17px; }
 .native-menu span { gap: 12px; }
@@ -612,17 +619,19 @@ html, body { background: var(--mini-bg); }
   .category-pill { min-width: 88px; }
   .profile-capsule { padding-left: 16px; padding-right: 16px; }
   .capsule-balance { margin-left: -16px; margin-right: -16px; padding-left: 16px; padding-right: 16px; }
-  .profile-avatar { width: 64px; height: 64px; flex-basis: 64px; }
-  .profile-status { padding: 5px 8px; font-size: 9px; }
+  .profile-capsule { padding-top: 18px; }
+  .profile-avatar { width: 88px; height: 88px; flex-basis: 88px; }
+  .profile-status { padding: 5px 9px; font-size: 9px; }
+  .profile-capsule h2 { font-size: 20px; }
 }
 
 /* Balance & recharge */
-.balance-label { color: #8893a6; font-size: 11px; white-space: nowrap; }
-.balance-amount { min-width: 0; flex: 1; color: #202a3e; font-size: 28px; font-weight: 800; letter-spacing: -.02em; }
-.balance-amount small { margin-right: 2px; color: #202a3e; font-size: 16px; font-weight: 700; }
-.balance-recharge { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 16px; border: 0; border-radius: 12px; color: #fff; background: linear-gradient(145deg,#637cff,#435de4); font-size: 12px; font-weight: 800; box-shadow: 0 7px 16px rgba(83,109,243,.22); transition: transform .15s ease; }
-.balance-recharge:active { transform: scale(.96); }
-.balance-recharge svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.balance-label { color: #9aa4b5; font-size: 11px; white-space: nowrap; }
+.balance-amount { min-width: 0; flex: 1; color: #202a3e; font-size: 26px; font-weight: 800; letter-spacing: -.02em; }
+.balance-amount small { margin-right: 2px; color: #202a3e; font-size: 15px; font-weight: 700; }
+.balance-recharge { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 14px; border: 0; border-radius: 999px; color: #fff; background: #4a63e8; font-size: 12px; font-weight: 700; box-shadow: 0 6px 14px rgba(74,99,232,.22); transition: transform .15s ease, background .15s ease; }
+.balance-recharge:active { transform: scale(.96); background: #3d51c8; }
+.balance-recharge svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.9; }
 
 .recharge-view { max-width: 640px; margin: 0 auto; }
 .recharge-balance { display: flex; align-items: baseline; justify-content: space-between; padding: 18px 4px 8px; }

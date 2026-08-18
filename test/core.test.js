@@ -150,6 +150,56 @@ test('adjusts user balance with audit trail and guards negative totals', () => {
   }
 });
 
+test('recharges balance via payment provider and credits idempotently', async () => {
+  const { db, commerce, admin, directory } = setup();
+  try {
+    const buyer = commerce.upsertTelegramUser({ id: 400000001, first_name: 'Recharge', username: 'recharge_user' });
+    assert.equal(buyer.balanceFen, 0);
+
+    // 创建充值会话（测试渠道返回内嵌付款信息）
+    const recharge = await commerce.createRecharge(buyer, { amountFen: 10000, idempotencyKey: 'recharge-request-001' });
+    assert.equal(recharge.amountFen, 10000);
+    assert.equal(recharge.status, 'pending_payment');
+    assert.ok(recharge.payment?.paymentInstructions?.qrContent);
+    const rechargeNo = recharge.rechargeNo;
+    assert.match(rechargeNo, /^RC/);
+
+    // 重复创建同一幂等键应返回同一充值
+    const dup = await commerce.createRecharge(buyer, { amountFen: 10000, idempotencyKey: 'recharge-request-001' });
+    assert.equal(dup.rechargeNo, rechargeNo);
+
+    // 模拟到账回调 → 入账
+    const paymentRow = db.prepare('SELECT * FROM recharge_payments WHERE merchant_order_id = ?').get(rechargeNo);
+    const payArgs = {
+      providerStatus: 'paid',
+      providerOrderId: paymentRow.provider_order_id,
+      merchantOrderId: rechargeNo,
+      chain: 'tron',
+      tokenId: 'tron-usdt',
+      payableAmount: '100.00',
+      paidAt: new Date().toISOString(),
+      transactionId: 'tx-1',
+      payload: { test_only: true },
+    };
+    await commerce.applyRechargeProviderStatus(null, payArgs);
+    let refreshed = commerce.getUser(buyer.id);
+    assert.equal(refreshed.balanceFen, 10000);
+    const entries = commerce.listBalanceEntries(buyer.id);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].kind, 'recharge');
+    assert.equal(entries[0].changeFen, 10000);
+
+    // 重复 paid 回调应幂等，不重复入账
+    await commerce.applyRechargeProviderStatus(null, payArgs);
+    refreshed = commerce.getUser(buyer.id);
+    assert.equal(refreshed.balanceFen, 10000, '重复回调不应重复入账');
+    assert.equal(commerce.listBalanceEntries(buyer.id).length, 1);
+  } finally {
+    db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('does not expose stored card plaintext in the database', async () => {
   const { db, commerce, admin, directory } = setup();
   try {

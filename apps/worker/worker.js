@@ -15,7 +15,8 @@ async function tick() {
     const recovered = runtime.commerce.recoverStaleFulfillmentJobs();
     const fulfilled = runtime.commerce.processJobs(20);
     const reconciled = await runtime.commerce.reconcileDuePayments(30);
-    if (recovered || fulfilled || reconciled) console.info(JSON.stringify({ recovered, fulfilled, reconciled }));
+    const recharged = await runtime.commerce.reconcileDueRecharges(30);
+    if (recovered || fulfilled || reconciled || recharged) console.info(JSON.stringify({ recovered, fulfilled, reconciled, recharged }));
   } catch (error) {
     console.error(error instanceof Error ? error.stack : error);
   } finally {

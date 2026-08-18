@@ -258,6 +258,47 @@ export function openDatabase(databasePath) {
             );
             CREATE INDEX IF NOT EXISTS idx_balance_entries_user ON balance_entries(user_id, created_at);`,
     },
+    {
+      version: 7,
+      sql: `CREATE TABLE IF NOT EXISTS recharge_orders (
+              id TEXT PRIMARY KEY,
+              recharge_no TEXT NOT NULL UNIQUE,
+              user_id TEXT NOT NULL REFERENCES users(id),
+              amount_fen INTEGER NOT NULL CHECK(amount_fen > 0),
+              status TEXT NOT NULL DEFAULT 'pending_payment' CHECK(status IN ('pending_payment', 'payment_confirming', 'paid', 'payment_expired', 'canceled')),
+              client_request_key TEXT NOT NULL,
+              payment_deadline TEXT NOT NULL,
+              paid_at TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              UNIQUE(user_id, client_request_key)
+            );
+            CREATE TABLE IF NOT EXISTS recharge_payments (
+              id TEXT PRIMARY KEY,
+              recharge_id TEXT NOT NULL REFERENCES recharge_orders(id),
+              provider TEXT NOT NULL,
+              merchant_order_id TEXT NOT NULL,
+              provider_order_id TEXT,
+              idempotency_key TEXT NOT NULL,
+              status TEXT NOT NULL,
+              fiat_amount TEXT,
+              fiat_currency TEXT,
+              payable_amount TEXT,
+              chain TEXT,
+              token_id TEXT,
+              paid_at TEXT,
+              transaction_id TEXT,
+              payment_instructions TEXT NOT NULL DEFAULT '{}',
+              checkout_url TEXT,
+              expires_at TEXT,
+              provider_payload TEXT NOT NULL DEFAULT '{}',
+              error_code TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_recharge_pay_merchant ON recharge_payments(merchant_order_id);
+            CREATE INDEX IF NOT EXISTS idx_recharge_pay_provider ON recharge_payments(provider_order_id);`,
+    },
   ];
   const applied = new Set(db.prepare('SELECT version FROM schema_migrations').all().map((row) => Number(row.version)));
   for (const migration of migrations) {

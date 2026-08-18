@@ -17,6 +17,9 @@ const state = {
   publicConfig: null,
   showRecharge: false,
   balanceEntries: null,
+  activeRecharge: null,
+  rechargePoll: null,
+  rechargeTimer: null,
 };
 
 class ApiError extends Error {
@@ -263,12 +266,13 @@ function profileView() {
   const username = state.user?.username ? `@${state.user.username}` : '';
   const photo = state.user?.photoUrl;
   const balance = Number(state.user?.balanceFen ?? 0);
+  const online = state.user?.isActive !== false;
   return `<section class="profile-view">
-    <div class="profile-capsule">
+    <div class="profile-capsule ${online ? '' : 'offline'}">
       <div class="capsule-row">
         <div class="profile-avatar ${photo ? 'has-photo' : ''}">${photo ? `<img src="${esc(photo)}" alt="${esc(displayName)} 的 Telegram 头像" referrerpolicy="no-referrer" />` : ''}</div>
         <div class="profile-info"><h2>${esc(displayName)}</h2>${username ? `<p class="profile-username">${esc(username)}</p>` : ''}<small class="profile-id">Telegram ID：${esc(state.user?.telegramId ?? '')}</small></div>
-        <span class="profile-status">已连接</span>
+        <span class="profile-status ${online ? 'online' : 'offline'}"><i class="status-dot"></i>${online ? '已连接' : '未连接'}</span>
       </div>
       <div class="capsule-balance"><div class="balance-label">账户余额</div><div class="balance-amount"><small>￥</small>${money(balance).slice(1)}</div><button class="balance-recharge" data-action="open-recharge">${icon.wallet}<span>充值</span></button></div>
     </div>
@@ -283,11 +287,18 @@ function profileView() {
 function rechargeView() {
   const balance = Number(state.user?.balanceFen ?? 0);
   const entries = state.balanceEntries ?? [];
+  const active = state.activeRecharge;
+  if (active) {
+    return `<section class="recharge-view">
+      <div class="recharge-balance"><span>当前余额</span><strong>${money(balance)}</strong></div>
+      ${rechargePaymentMarkup(active)}
+    </section>`;
+  }
   return `<section class="recharge-view">
     <div class="recharge-balance"><span>当前余额</span><strong>${money(balance)}</strong></div>
     <div class="recharge-card">
       <h3>充值</h3>
-      <p class="recharge-tip">请输入充值金额，提交后联系客服在后台为你的余额充值到账。</p>
+      <p class="recharge-tip">输入充值金额，确认后将出示收款二维码，到账后余额自动增加。</p>
       <input name="recharge-amount" class="recharge-input" type="number" inputmode="decimal" min="0.01" step="0.01" placeholder="充值金额（元）" aria-label="充值金额" />
       <button class="recharge-submit" data-action="submit-recharge">充值</button>
     </div>
@@ -295,6 +306,41 @@ function rechargeView() {
       ${entries.length ? `<div class="balance-list">${entries.map((entry) => { const kindLabel = { recharge: '充值', adjust: '调整', purchase: '消费', refund: '退款', expire: '过期' }[entry.kind] ?? entry.kind; return `<div class="balance-item"><div><strong>${esc(kindLabel)}</strong><small>${new Date(entry.createdAt).toLocaleString('zh-CN')}</small></div><span class="${entry.changeFen >= 0 ? 'credit' : 'debit'}">${entry.changeFen >= 0 ? '+' : ''}${money(entry.changeFen)}</span></div>`; }).join('')}</div>` : '<div class="balance-empty">暂无余额变动记录</div>'}
     </div>
   </section>`;
+}
+
+function rechargePaymentMarkup(recharge) {
+  const payment = recharge.payment;
+  const instructions = payment?.paymentInstructions;
+  const waiting = ['pending_payment', 'payment_confirming'].includes(recharge.status);
+  if (!instructions) {
+    return waiting
+      ? '<div class="notice error">当前充值缺少支付信息，请返回重新发起。</div>'
+      : '';
+  }
+  if (!waiting) {
+    const failed = ['payment_expired', 'canceled'].includes(recharge.status);
+    const label = recharge.status === 'paid' ? '充值到账，余额已增加' : recharge.status === 'payment_confirming' ? '已检测到付款，确认中' : '充值未完成';
+    return `<div class="payment-result ${failed ? 'failed' : ''}"><span class="payment-live-dot"></span><div><strong>${esc(label)}</strong><small>${esc(paymentAmountLike(recharge))}</small></div><button class="copy-button" style="margin-left:auto" data-action="back-to-recharge">返回</button></div>`;
+  }
+  return `<section class="embedded-payment" aria-label="充值付款信息">
+    <div class="payment-status-line"><span class="payment-live-dot"></span><strong>${esc(recharge.status === 'payment_confirming' ? '已检测到付款，正在确认' : '请扫码完成付款')}</strong><span class="payment-countdown" data-payment-countdown></span></div>
+    <div class="payment-qr-frame"><div id="payment-qr" class="payment-qr" role="img" aria-label="付款二维码">正在生成二维码…</div></div>
+    <p class="payment-hint">请使用${esc(paymentMethodLabel(instructions.method))}扫描二维码为余额充值，到账后自动入账。</p>
+    <div class="payment-network"><span>支付方式</span><strong>${esc(instructions.label)}${instructions.network ? ` · ${esc(instructions.network)}` : ''}</strong></div>
+    <div class="payment-amount-row"><div><small>充值金额</small><strong>${money(recharge.amountFen)}</strong></div></div>
+    ${addressOf(instructions) ? `<div class="payment-address-row"><div><small>收款地址</small><code>${esc(addressOf(instructions))}</code></div><button class="copy-button" data-action="copy-payment" data-copy="${encodeURIComponent(addressOf(instructions))}">复制地址</button></div>` : ''}
+    <div class="payment-order-note"><span>充值单号：${esc(recharge.rechargeNo)}</span><button data-action="copy-payment" data-copy="${encodeURIComponent(recharge.rechargeNo)}">复制</button></div>
+  </section>`;
+}
+
+function paymentAmountLike(recharge) {
+  const inst = recharge.payment?.paymentInstructions;
+  if (recharge.payment?.payableAmount) return `${recharge.payment.payableAmount} ${recharge.payment.tokenId ?? 'USDT'}`;
+  return `${money(recharge.amountFen)}`;
+}
+
+function addressOf(instructions) {
+  return instructions?.address ?? '';
 }
 
 function renderCatalog() {
@@ -575,17 +621,94 @@ async function loadBalance(force = false) {
   if (state.showRecharge) renderCatalog();
 }
 
-function submitRecharge() {
+async function submitRecharge() {
   const amount = Number(document.querySelector('[name="recharge-amount"]')?.value);
   if (!Number.isFinite(amount) || amount <= 0) {
     showToast('请输入正确的充值金额。');
     return;
   }
-  const support = state.publicConfig?.supportUrl;
-  showToast('充值申请已记录，请联系客服完成到账。');
-  if (support) {
-    setTimeout(() => openExternalUrl(support), 600);
+  if (!state.publicConfig?.paymentReady) {
+    showToast(state.publicConfig?.paymentConfigured ? '支付渠道已暂停，请稍后再试。' : '支付渠道未配置，暂无法充值。');
+    return;
   }
+  const button = document.querySelector('[data-action="submit-recharge"]');
+  button?.setAttribute('disabled', '');
+  try {
+    const idempotencyKey = `rcg_${crypto.randomUUID().replaceAll('-', '')}`;
+    const { recharge } = await api('/api/me/recharge', {
+      method: 'POST',
+      body: JSON.stringify({ amount, idempotencyKey }),
+    });
+    state.activeRecharge = recharge;
+    renderCatalog();
+    setupRechargePaymentView(recharge);
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : '发起充值失败，请稍后重试。');
+    button?.removeAttribute('disabled');
+  }
+}
+
+function setupRechargePaymentView(recharge) {
+  const instructions = recharge.payment?.paymentInstructions;
+  if (instructions) renderPaymentQrFor(recharge);
+  startRechargeCountdown(recharge);
+  if (['pending_payment', 'payment_confirming'].includes(recharge.status)) {
+    clearInterval(state.rechargePoll);
+    state.rechargePoll = setInterval(() => void pollRecharge(recharge.rechargeNo), 4000);
+  }
+}
+
+function renderPaymentQrFor(recharge) {
+  const target = document.querySelector('#payment-qr');
+  const instructions = recharge.payment?.paymentInstructions;
+  if (!target || !instructions?.qrContent) return;
+  if (typeof window.qrcode !== 'function') { target.textContent = '二维码组件加载失败，请刷新页面。'; return; }
+  try {
+    const qr = window.qrcode(0, 'M');
+    qr.addData(instructions.qrContent, 'Byte');
+    qr.make();
+    target.innerHTML = qr.createSvgTag({ scalable: true, cellSize: 5, margin: 14 });
+  } catch {
+    target.textContent = '二维码内容无效，请复制收款地址付款。';
+  }
+}
+
+function startRechargeCountdown(recharge) {
+  const target = document.querySelector('[data-payment-countdown]');
+  if (!target || !recharge.payment?.expiresAt) { if (target) target.textContent = '请完成付款'; return; }
+  const expiresAt = new Date(recharge.payment.expiresAt).getTime();
+  const tick = () => {
+    const remaining = expiresAt - Date.now();
+    if (remaining <= 0) { target.textContent = '二维码已过期'; target.classList.add('expired'); return; }
+    const s = Math.floor(remaining / 1000);
+    target.textContent = `剩余 ${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  };
+  tick();
+  clearInterval(state.rechargeTimer);
+  state.rechargeTimer = setInterval(tick, 1000);
+}
+
+async function pollRecharge(rechargeNo) {
+  try {
+    const data = await api(`/api/me/recharge/${rechargeNo}`);
+    if (data?.rechargeNo) state.activeRecharge = data;
+    renderCatalog();
+    if (['paid', 'payment_expired', 'canceled'].includes(data?.status)) {
+      clearInterval(state.rechargePoll);
+      clearInterval(state.rechargeTimer);
+      await refreshUserAndBalance();
+    } else if (data?.payment?.paymentInstructions && !document.querySelector('#payment-qr')) {
+      setupRechargePaymentView(data);
+    }
+  } catch { /* transient errors keep polling */ }
+}
+
+async function refreshUserAndBalance() {
+  try {
+    const data = await api('/api/me/balance');
+    if (state.user) state.user.balanceFen = data.balanceFen;
+    state.balanceEntries = data.entries ?? [];
+  } catch { /* ignore */ }
 }
 
 function showToast(message) {
@@ -680,7 +803,17 @@ async function onClick(event) {
   }
   if (action === 'close-recharge') {
     state.showRecharge = false;
+    state.activeRecharge = null;
+    clearInterval(state.rechargePoll);
+    clearInterval(state.rechargeTimer);
     history.pushState({}, '', '/');
+    renderCatalog();
+    return;
+  }
+  if (action === 'back-to-recharge') {
+    state.activeRecharge = null;
+    clearInterval(state.rechargePoll);
+    clearInterval(state.rechargeTimer);
     renderCatalog();
     return;
   }

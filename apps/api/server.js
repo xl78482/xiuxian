@@ -515,6 +515,23 @@ async function handleApi(request, response, pathname) {
       entries: commerce.listBalanceEntries(identity.id, 50),
     });
   }
+  if (method === 'POST' && pathname === '/api/me/recharge') {
+    if (!checkRateLimit(request, response, 6)) return;
+    const identity = requireIdentity(request).identity;
+    const body = assertObject(await readJson(request));
+    const idempotencyKey = typeof body.idempotencyKey === 'string' ? body.idempotencyKey : null;
+    const recharge = await commerce.createRecharge(identity, {
+      amountFen: Math.round((Number(body.amount) || 0) * 100),
+      idempotencyKey: idempotencyKey || undefined,
+    });
+    return sendJson(response, 201, { recharge });
+  }
+  const rechargePollMatch = pathname.match(/^\/api\/me\/recharge\/(RC\d+)$/);
+  if (method === 'GET' && rechargePollMatch) {
+    const identity = requireIdentity(request).identity;
+    const recharge = commerce.rechargeByNo(identity.id, rechargePollMatch[1]);
+    return sendJson(response, 200, recharge ?? { rechargeNo: rechargePollMatch[1], status: 'not_found' });
+  }
 
   if (method === 'GET' && pathname === '/api/admin/dashboard') {
     requireAdmin(request);

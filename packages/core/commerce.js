@@ -21,6 +21,11 @@ function orderNumber() {
   return `XX${stamp}${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
 }
 
+function rechargeNumber() {
+  const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+  return `RC${stamp}${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+}
+
 function asBoolean(value) {
   return Boolean(Number(value));
 }
@@ -698,6 +703,35 @@ export class CommerceService {
     if (typeof merchantOrderId !== 'string' || typeof providerOrderId !== 'string') {
       throw new DomainError('支付回调缺少订单标识。', 'invalid_webhook', 400);
     }
+
+    // 余额充值走独立的充值支付状态，不参与订单发卡
+    if (typeof merchantOrderId === 'string' && merchantOrderId.startsWith('RC')) {
+      const payloadStatus = data.status === 'created' ? 'awaiting_payment' : data.status;
+      const statusByEventType = {
+        'order.method_selected': 'pending',
+        'order.confirming': 'confirming',
+        'order.paid': 'paid',
+        'order.expired': 'expired',
+        'order.canceled': 'canceled',
+      };
+      const status = event.event_type === 'order.created' ? payloadStatus : statusByEventType[event.event_type];
+      if (!status || (event.event_type === 'order.created' && !['awaiting_payment', 'pending'].includes(status))) {
+        throw new DomainError('支付回调事件状态无效。', 'invalid_webhook', 400);
+      }
+      this.applyRechargeProviderStatus(null, {
+        providerStatus: status,
+        providerOrderId,
+        merchantOrderId,
+        chain: typeof data.chain === 'string' ? data.chain : null,
+        tokenId: typeof data.token_id === 'string' ? data.token_id : null,
+        payableAmount: typeof data.payable_amount === 'string' ? data.payable_amount : null,
+        transactionId: typeof data.tx_hash === 'string' ? data.tx_hash : typeof data.tx_id === 'string' ? data.tx_id : null,
+        paidAt: event.event_type === 'order.paid' ? (data.paid_at ?? event.created_at) : null,
+        payload: event,
+      });
+      return;
+    }
+
     const payment = this.findOrderByMerchantId(merchantOrderId);
     if (!payment) throw new DomainError('支付回调对应的订单不存在。', 'unknown_payment_order', 404);
     if (payment.provider_order_id && payment.provider_order_id !== providerOrderId) {
@@ -1182,6 +1216,68 @@ export class CommerceService {
     return processed;
   }
 
+  async reconcileDueRecharges(limit = 30) {
+    const retryBefore = new Date(Date.now() - 60_000).toISOString();
+    const due = many(
+      this.db,
+      `SELECT r.id, r.recharge_no, r.user_id, r.amount_fen, r.payment_deadline,
+              p.provider_order_id, p.status AS payment_status
+       FROM recharge_orders r
+       JOIN recharge_payments p ON p.recharge_id = r.id
+       WHERE r.status IN ('pending_payment', 'payment_confirming')
+         AND r.payment_deadline <= ?
+         AND p.updated_at <= ?
+       ORDER BY r.payment_deadline LIMIT ?`,
+      nowIso(),
+      retryBefore,
+      limit,
+    );
+    let processed = 0;
+    for (const recharge of due) {
+      try {
+        if (!recharge.provider_order_id) {
+          const summary = this.rechargeByNo(recharge.user_id, recharge.recharge_no);
+          await this.ensureRechargeSession(summary, recharge.user_id);
+        } else {
+          const providerOrder = await this.paymentProvider.getOrder(recharge.provider_order_id);
+          this.applyRechargeProviderStatus(null, {
+            providerStatus: providerOrder.status,
+            providerOrderId: providerOrder.providerOrderId,
+            merchantOrderId: providerOrder.merchantOrderId ?? recharge.recharge_no,
+            chain: providerOrder.chain,
+            tokenId: providerOrder.tokenId,
+            payableAmount: providerOrder.payableAmount,
+            transactionId: providerOrder.transactionId ?? null,
+            paidAt: providerOrder.paidAt ?? null,
+            payload: providerOrder.raw ?? {},
+          });
+        }
+        processed += 1;
+      } catch (error) {
+        const now = nowIso();
+        run(
+          this.db,
+          `UPDATE recharge_payments SET provider_payload = ?, updated_at = ? WHERE recharge_id = ? AND status != 'paid'`,
+          JSON.stringify({
+            reconciliationError: typeof error?.code === 'string' ? error.code : 'recharge_reconciliation_error',
+            attemptedAt: now,
+          }),
+          now,
+          recharge.id,
+        );
+      }
+    }
+    return processed;
+  }
+
+  listPendingRechargeForWorker(limit = 5) {
+    // 供 Worker 心跳展示是否还有待确认的充值
+    return one(
+      this.db,
+      `SELECT COUNT(*) AS count FROM recharge_orders WHERE status IN ('pending_payment', 'payment_confirming')`,
+    )?.count ?? 0;
+  }
+
   importCards(actor, input) {
     const variantId = assertText(input.variantId, 'SKU', 1, 128);
     const label = assertText(input.batchLabel, '批次名称', 1, 120);
@@ -1472,6 +1568,282 @@ export class CommerceService {
     });
     return this.getUser(userId);
   }
+
+  // ---- 余额充值（DujiaoPay） ----
+
+  rechargeOrderMapper(row, paymentRow) {
+    if (!row) return null;
+    let paymentInstructions = null;
+    try { paymentInstructions = normalizePaymentInstructions(parseJson((paymentRow?.payment_instructions ?? '{}'), null)); } catch { paymentInstructions = null; }
+    return {
+      rechargeNo: row.recharge_no,
+      amountFen: Number(row.amount_fen),
+      status: row.status,
+      paymentDeadline: row.payment_deadline,
+      paidAt: row.paid_at,
+      createdAt: row.created_at,
+      payment: paymentRow
+        ? {
+            provider: paymentRow.provider,
+            providerOrderId: paymentRow.provider_order_id,
+            merchantOrderId: paymentRow.merchant_order_id,
+            status: paymentRow.status,
+            fiatAmount: paymentRow.fiat_amount,
+            fiatCurrency: paymentRow.fiat_currency,
+            payableAmount: paymentRow.payable_amount,
+            chain: paymentRow.chain,
+            tokenId: paymentRow.token_id,
+            checkoutUrl: paymentRow.checkout_url,
+            expiresAt: paymentRow.expires_at,
+            paymentInstructions,
+          }
+        : null,
+    };
+  }
+
+  rechargeByClientKey(userId, requestKey) {
+    const row = one(
+      this.db,
+      `SELECT r.*, p.provider, p.provider_order_id, p.merchant_order_id, p.status AS payment_status,
+              p.fiat_amount, p.fiat_currency, p.payable_amount, p.chain, p.token_id,
+              p.checkout_url, p.expires_at, p.paid_at, p.transaction_id, p.payment_instructions
+       FROM recharge_orders r LEFT JOIN recharge_payments p ON p.recharge_id = r.id
+       WHERE r.user_id = ? AND r.client_request_key = ?`,
+      userId,
+      requestKey,
+    );
+    return this.rechargeOrderMapper(row, row);
+  }
+
+  rechargeByNo(userId, rechargeNo) {
+    const row = one(
+      this.db,
+      `SELECT r.*, p.provider, p.provider_order_id, p.merchant_order_id, p.status AS payment_status,
+              p.fiat_amount, p.fiat_currency, p.payable_amount, p.chain, p.token_id,
+              p.checkout_url, p.expires_at, p.paid_at, p.transaction_id, p.payment_instructions
+       FROM recharge_orders r LEFT JOIN recharge_payments p ON p.recharge_id = r.id
+       WHERE r.user_id = ? AND r.recharge_no = ?`,
+      userId,
+      rechargeNo,
+    );
+    return this.rechargeOrderMapper(row, row);
+  }
+
+  rechargePaymentByMerchantId(merchantOrderId) {
+    const row = one(
+      this.db,
+      `SELECT r.*, p.provider, p.provider_order_id, p.merchant_order_id, p.status AS payment_status,
+              p.fiat_amount, p.fiat_currency, p.payable_amount, p.chain, p.token_id,
+              p.checkout_url, p.expires_at, p.paid_at, p.transaction_id, p.payment_instructions
+       FROM recharge_payments p JOIN recharge_orders r ON r.id = p.recharge_id
+       WHERE p.merchant_order_id = ?`,
+      merchantOrderId,
+    );
+    return this.rechargeOrderMapper(row, row);
+  }
+
+  async createRecharge(user, input) {
+    const amountFen = assertInteger(input.amountFen, '充值金额', 1, 100000000);
+    const requestKey = assertText(input.idempotencyKey, '请求标识', 8, 128);
+    const existing = this.rechargeByClientKey(user.id, requestKey);
+    if (existing) return this.ensureRechargeSession(existing, user.id);
+    const enabled = this.paymentProvider.isEnabled !== false;
+    const configured = typeof this.paymentProvider.isConfigured === 'function' ? this.paymentProvider.isConfigured() : true;
+    if (!enabled || !configured) {
+      throw new DomainError('支付渠道未配置，暂无法充值。', 'payment_not_configured', 503);
+    }
+    let local;
+    try {
+      local = transaction(this.db, () => {
+        const concurrent = this.rechargeByClientKey(user.id, requestKey);
+        if (concurrent) return this.ensureRechargeSession(concurrent, user.id);
+        const now = nowIso();
+        const id = randomId('rcg_');
+        const rechargeNo = rechargeNumber();
+        run(
+          this.db,
+          `INSERT INTO recharge_orders (id, recharge_no, user_id, amount_fen, status, client_request_key, payment_deadline, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 'pending_payment', ?, ?, ?, ?)`,
+          id,
+          rechargeNo,
+          user.id,
+          amountFen,
+          requestKey,
+          addMinutes(this.config.paymentTtlMinutes),
+          now,
+          now,
+        );
+        run(
+          this.db,
+          `INSERT INTO recharge_payments (id, recharge_id, provider, merchant_order_id, idempotency_key, status, fiat_amount, fiat_currency, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, 'awaiting_payment', ?, 'CNY', ?, ?)`,
+          randomId('rcpay_'),
+          id,
+          this.paymentProvider.name,
+          rechargeNo,
+          rechargeNo,
+          (amountFen / 100).toFixed(2),
+          now,
+          now,
+        );
+        const row = this.rechargeByNo(user.id, rechargeNo);
+        return { row, no: rechargeNo };
+      });
+    } catch (error) {
+      if (isSqliteUniqueError(error)) {
+        const duplicate = this.rechargeByClientKey(user.id, requestKey);
+        if (duplicate) return this.ensureRechargeSession(duplicate, user.id);
+      }
+      throw error;
+    }
+    return this.ensureRechargeSession(local.row, user.id);
+  }
+
+  async ensureRechargeSession(recharge, userId) {
+    if (!recharge || !['pending_payment', 'payment_confirming'].includes(recharge.status)) return recharge;
+    const payment = recharge.payment;
+    if (payment?.paymentInstructions || payment?.checkoutUrl || payment?.status === 'paid') return recharge;
+    let session;
+    try {
+      session = await this.paymentProvider.createPayment({
+        merchantOrderId: recharge.rechargeNo,
+        amountFen: Number(recharge.amountFen),
+        metadata: { recharge_no: recharge.rechargeNo, user_id: userId, kind: 'recharge' },
+        successUrl: new URL(`/wallet`, this.config.appOrigin).toString(),
+        cancelUrl: new URL(`/wallet`, this.config.appOrigin).toString(),
+      });
+    } catch (error) {
+      if (error instanceof DomainError) throw error;
+      throw new DomainError('支付渠道暂时不可用，请稍后重试。', 'payment_session_pending', 503);
+    }
+    if (!session || session.provider !== this.paymentProvider.name || typeof session.providerOrderId !== 'string') {
+      throw new DomainError('支付渠道返回了无效订单。', 'invalid_payment_session', 502);
+    }
+    let paymentInstructions = null;
+    if (session.paymentInstructions) {
+      try { paymentInstructions = normalizePaymentInstructions(session.paymentInstructions); } catch { throw new DomainError('支付渠道返回了无效的内嵌付款信息。', 'invalid_payment_session', 502); }
+    }
+    run(
+      this.db,
+      `UPDATE recharge_payments SET
+         provider_order_id = COALESCE(provider_order_id, ?),
+         checkout_url = COALESCE(?, checkout_url),
+         expires_at = COALESCE(?, expires_at),
+         payment_instructions = ?,
+         provider_payload = ?, updated_at = ?
+       WHERE recharge_id = ?`,
+      session.providerOrderId,
+      session.checkoutUrl ?? null,
+      session.expiresAt ?? null,
+      JSON.stringify(paymentInstructions ?? {}),
+      JSON.stringify(session.raw ?? {}),
+      nowIso(),
+      one(this.db, 'SELECT id FROM recharge_orders WHERE recharge_no = ?', recharge.rechargeNo)?.id,
+    );
+    return this.rechargeByNo(userId, recharge.rechargeNo);
+  }
+
+  applyRechargeProviderStatus(rechargeEntry, incoming) {
+    const status = incoming.providerStatus;
+    const rechargeNo = incoming.merchantOrderId;
+    const payment = one(this.db, 'SELECT * FROM recharge_payments WHERE merchant_order_id = ?', rechargeNo);
+    if (!payment) throw new DomainError('充值回调对应的订单不存在。', 'unknown_payment_order', 404);
+    if (incoming.providerOrderId && payment.provider_order_id && payment.provider_order_id !== incoming.providerOrderId) {
+      throw new DomainError('支付渠道订单号不匹配。', 'payment_order_mismatch', 409);
+    }
+    if (incoming.providerOrderId && !payment.provider_order_id) {
+      run(this.db, 'UPDATE recharge_payments SET provider_order_id = ?, updated_at = ? WHERE id = ?', incoming.providerOrderId, nowIso(), payment.id);
+    }
+    const current = one(this.db, 'SELECT * FROM recharge_orders WHERE id = ?', payment.recharge_id);
+    if (!current) throw new DomainError('充值订单不存在。', 'unknown_payment_order', 404);
+    // 已到账则忽略重复事件（Webhook 已按 event id 去重）
+    if (current.status === 'paid') return this.rechargeByNo(current.user_id, current.recharge_no);
+
+    const now = nowIso();
+    if (status === 'paid') {
+      // 锁定充值，防止并发重复入账
+      const locked = run(
+        this.db,
+        `UPDATE recharge_orders SET status = ?, paid_at = ?, updated_at = ? WHERE id = ? AND status != 'paid'`,
+        'paid',
+        incoming.paidAt ?? now,
+        now,
+        payment.recharge_id,
+      ).changes;
+      if (locked === 1) {
+        run(
+          this.db,
+          `UPDATE recharge_payments SET status = 'paid', payable_amount = COALESCE(?, payable_amount),
+             chain = COALESCE(?, chain), token_id = COALESCE(?, token_id),
+             paid_at = COALESCE(?, paid_at), transaction_id = COALESCE(?, transaction_id),
+             provider_payload = ?, updated_at = ? WHERE id = ?`,
+          incoming.payableAmount,
+          incoming.chain,
+          incoming.tokenId,
+          incoming.paidAt,
+          incoming.transactionId,
+          JSON.stringify(incoming.payload ?? {}),
+          now,
+          payment.id,
+        );
+        const amount = Number(current.amount_fen);
+        const userRow = one(this.db, 'SELECT balance_fen FROM users WHERE id = ?', current.user_id);
+        const nextBalance = Number(userRow?.balance_fen ?? 0) + amount;
+        run(this.db, 'UPDATE users SET balance_fen = ?, updated_at = ? WHERE id = ?', nextBalance, now, current.user_id);
+        run(
+          this.db,
+          `INSERT INTO balance_entries (id, user_id, change_fen, balance_after_fen, kind, memo, source, created_at)
+           VALUES (?, ?, ?, ?, 'recharge', ?, 'recharge', ?)`,
+          randomId('bal_'),
+          current.user_id,
+          amount,
+          nextBalance,
+          `支付渠道充值 ${rechargeNo}`,
+          now,
+        );
+        this.audit(null, 'balance.recharge', 'user', current.user_id, { rechargeNo, changeFen: amount });
+      }
+      return this.rechargeByNo(current.user_id, current.recharge_no);
+    }
+
+    if (status === 'confirming') {
+      run(
+        this.db,
+        `UPDATE recharge_payments SET status = 'confirming', provider_payload = ?, updated_at = ? WHERE id = ?`,
+        JSON.stringify(incoming.payload ?? {}),
+        now,
+        payment.id,
+      );
+      run(this.db, "UPDATE recharge_orders SET status = 'payment_confirming', updated_at = ? WHERE id = ?", now, payment.recharge_id);
+      return this.rechargeByNo(current.user_id, current.recharge_no);
+    }
+
+    if (['expired', 'canceled'].includes(status)) {
+      run(
+        this.db,
+        `UPDATE recharge_payments SET status = ?, provider_payload = ?, updated_at = ? WHERE id = ? AND status != 'paid'`,
+        status,
+        JSON.stringify(incoming.payload ?? {}),
+        now,
+        payment.id,
+      );
+      run(this.db, "UPDATE recharge_orders SET status = ?, updated_at = ? WHERE id = ? AND status != 'paid'", status === 'expired' ? 'payment_expired' : 'canceled', now, payment.recharge_id);
+      return this.rechargeByNo(current.user_id, current.recharge_no);
+    }
+
+    return this.rechargeByNo(current.user_id, current.recharge_no);
+  }
+
+  listUserRecharges(userId, limit = 20) {
+    return many(
+      this.db,
+      `SELECT recharge_no, amount_fen, status, paid_at, created_at FROM recharge_orders
+       WHERE user_id = ? ORDER BY created_at DESC LIMIT ?`,
+      userId,
+      Number(limit),
+    );
+  }
+
 
   listBalanceEntries(userId, limit = 50) {
     return many(
