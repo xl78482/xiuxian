@@ -381,11 +381,7 @@ function shopView(animate = false) {
   const categoryMap = new Map();
   for (const product of state.catalog) if (product.category) categoryMap.set(product.category.id, product.category);
   const products = state.catalog.filter((product) => state.selectedCategory === 'all' || product.category?.id === state.selectedCategory);
-  const paymentState = state.publicConfig?.paymentReady
-    ? `${String(state.publicConfig.paymentToken ?? 'USDT').split('-').at(-1).toUpperCase()} · ${String(state.publicConfig.paymentChain ?? 'TRON').toUpperCase()} · 自动发卡`
-    : '支付渠道配置中 · 暂不可下单';
   return `<section class="shop-view">
-    <div class="promo-strip${animate ? ' banner-enter' : ''}"><span class="promo-mark">XX</span><span class="promo-copy">${paymentState}</span>${icon.chevron}</div>
     <div class="category-strip" role="tablist" aria-label="商品分类">
       <button class="category-capsule ${state.selectedCategory === 'all' ? 'active' : ''}" data-action="filter" data-category="all">全部<small>${state.catalog.length}</small></button>
       ${[...categoryMap.values()].map((category) => `<button class="category-capsule ${state.selectedCategory === category.id ? 'active' : ''}" data-action="filter" data-category="${esc(category.id)}">${esc(category.name)}<small>${state.catalog.filter((product) => product.category?.id === category.id).length}</small></button>`).join('')}
