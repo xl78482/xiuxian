@@ -7,7 +7,6 @@ const state = {
   orders: null,
   ordersLoading: false,
   selectedCategory: 'all',
-  searchQuery: '',
   detailProductId: null,
   selectedVariants: new Map(),
   checkout: null,
@@ -41,7 +40,6 @@ const icon = {
   support: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13v-2a8 8 0 0 1 16 0v2"/><path d="M4 13h3v6H5a1 1 0 0 1-1-1v-5ZM20 13h-3v6h2a1 1 0 0 0 1-1v-5ZM17 19c0 1-2 2-5 2"/></svg>',
   chevron: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>',
   refresh: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5M4 18v-5h5"/><path d="M6.1 9a7 7 0 0 1 11.5-2.4L20 11M4 13l2.4 4.4A7 7 0 0 0 17.9 15"/></svg>',
-  search: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 5 5"/></svg>',
   back: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>',
   info: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 10v6M12 7h.01"/></svg>',
 };
@@ -167,7 +165,6 @@ function renderHeader() {
         <div><h1>${title}</h1><p>${subtitle}</p></div>
       </div>
       <div class="mini-header-actions">
-        ${state.activeTab === 'shop' ? `<button class="mini-icon-button" data-action="focus-search" title="搜索商品" aria-label="搜索商品">${icon.search}</button>` : ''}
         ${state.activeTab === 'orders' ? `<button class="mini-icon-button" data-action="refresh-orders" title="刷新订单" aria-label="刷新订单">${icon.refresh}</button>` : ''}
       </div>
     </header>`;
@@ -235,21 +232,15 @@ function renderTabbar() {
 function shopView() {
   const categoryMap = new Map();
   for (const product of state.catalog) if (product.category) categoryMap.set(product.category.id, product.category);
-  const query = state.searchQuery.trim().toLowerCase();
-  const products = state.catalog.filter((product) => {
-    const categoryMatch = state.selectedCategory === 'all' || product.category?.id === state.selectedCategory;
-    const searchMatch = !query || `${product.title} ${product.description} ${product.category?.name ?? ''}`.toLowerCase().includes(query);
-    return categoryMatch && searchMatch;
-  });
+  const products = state.catalog.filter((product) => state.selectedCategory === 'all' || product.category?.id === state.selectedCategory);
   return `<section class="shop-view">
     <div class="shop-banner"><div><span>INSTANT DELIVERY</span><h2>今天想补充什么？</h2><p>${state.publicConfig?.paymentReady ? `${String(state.publicConfig.paymentToken ?? 'USDT').split('-').at(-1).toUpperCase()} · ${String(state.publicConfig.paymentChain ?? 'TRON').toUpperCase()} · 自动发卡` : '支付渠道配置中 · 暂不可下单'}</p></div><div class="banner-mark">XX</div></div>
-    <label class="catalog-search">${icon.search}<input id="catalog-search" type="search" value="${esc(state.searchQuery)}" placeholder="搜索商品、类型或关键词" aria-label="搜索商品" /></label>
-    <div class="filter-row" role="tablist" aria-label="商品分类">
-      <button class="filter ${state.selectedCategory === 'all' ? 'active' : ''}" data-action="filter" data-category="all">全部</button>
-      ${[...categoryMap.values()].map((category) => `<button class="filter ${state.selectedCategory === category.id ? 'active' : ''}" data-action="filter" data-category="${esc(category.id)}">${esc(category.name)}</button>`).join('')}
+    <div class="category-strip" role="tablist" aria-label="商品分类">
+      <button class="category-pill ${state.selectedCategory === 'all' ? 'active' : ''}" data-action="filter" data-category="all"><span class="category-glyph">✦</span><b>全部</b><small>${state.catalog.length}</small></button>
+      ${[...categoryMap.values()].map((category, index) => `<button class="category-pill ${state.selectedCategory === category.id ? 'active' : ''}" data-action="filter" data-category="${esc(category.id)}"><span class="category-glyph">${String(index + 1).padStart(2, '0')}</span><b>${esc(category.name)}</b><small>${state.catalog.filter((product) => product.category?.id === category.id).length}</small></button>`).join('')}
     </div>
     <div class="native-section-title"><div><span class="section-eyebrow">COLLECTION</span><h2>精选商品</h2></div><span>${products.length} 件</span></div>
-    <div class="product-grid">${products.length ? products.map(productCard).join('') : `<div class="native-empty compact">${icon.package}<h2>没有匹配商品</h2><p>换个关键词或查看全部分类</p></div>`}</div>
+    <div class="product-grid">${products.length ? products.map(productCard).join('') : `<div class="native-empty compact">${icon.package}<h2>没有匹配商品</h2><p>切换分类看看其他商品</p></div>`}</div>
   </section>`;
 }
 
@@ -267,7 +258,7 @@ function profileView() {
   const username = state.user?.username ? `@${state.user.username}` : '未设置 Telegram 用户名';
   const photo = state.user?.photoUrl;
   return `<section class="profile-view">
-    <div class="profile-card"><div class="profile-avatar ${photo ? 'has-photo' : ''}"><span>${esc(initials)}</span>${photo ? `<img src="${esc(photo)}" alt="${esc(displayName)} 的 Telegram 头像" referrerpolicy="no-referrer" />` : ''}</div><div class="profile-info"><h2>${esc(displayName)}</h2><p>${esc(username)}</p><small>ID：${esc(state.user?.telegramId ?? '')}</small></div></div>
+    <div class="profile-capsule"><div class="profile-avatar ${photo ? 'has-photo' : ''}"><span>${esc(initials)}</span>${photo ? `<img src="${esc(photo)}" alt="${esc(displayName)} 的 Telegram 头像" referrerpolicy="no-referrer" />` : ''}</div><div class="profile-info"><span class="profile-kicker">TELEGRAM ACCOUNT</span><h2>${esc(displayName)}</h2><p>${esc(username)}</p></div><span class="profile-status">已连接</span></div>
     <div class="native-menu">
       <button data-action="switch-tab" data-tab="orders"><span>${icon.receipt}<b>我的订单</b></span>${icon.chevron}</button>
       ${state.publicConfig?.supportUrl ? `<button data-action="open-support"><span>${icon.support}<b>联系售后</b></span>${icon.chevron}</button>` : ''}
@@ -616,10 +607,6 @@ async function onClick(event) {
     renderCatalog();
     return;
   }
-  if (action === 'focus-search') {
-    document.querySelector('#catalog-search')?.focus();
-    return;
-  }
   if (action === 'open-detail') {
     return openDetail(actionElement.dataset.productId);
   }
@@ -694,16 +681,6 @@ function onChange(event) {
   renderCatalog();
 }
 
-function onInput(event) {
-  if (!event.target.matches('#catalog-search')) return;
-  state.searchQuery = event.target.value;
-  const selectionStart = event.target.selectionStart;
-  renderCatalog();
-  const input = document.querySelector('#catalog-search');
-  input?.focus();
-  if (input && selectionStart !== null) input.setSelectionRange(selectionStart, selectionStart);
-}
-
 function routeProductSlug() {
   const slug = location.pathname.match(/^\/products\/([^/]+)$/)?.[1];
   if (!slug) return null;
@@ -742,7 +719,6 @@ document.addEventListener('click', (event) => {
   });
 });
 document.addEventListener('change', onChange);
-document.addEventListener('input', onInput);
 window.addEventListener('popstate', () => {
   const detailProductId = routeProductSlug();
   state.detailProductId = detailProductId;
