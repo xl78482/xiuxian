@@ -155,14 +155,14 @@ function renderHeader() {
   const titles = {
     shop: ['XiuXian', '数字商品商城'],
     orders: ['我的订单', '支付与交付记录'],
-    profile: ['我的', '账号与服务'],
+    profile: ['我的', ''],
   };
   const [title, subtitle] = titles[state.activeTab];
   return `
     <header class="mini-header">
       <div class="mini-header-title">
         ${state.activeTab === 'shop' ? '<span class="mini-logo">XX</span>' : ''}
-        <div><h1>${title}</h1><p>${subtitle}</p></div>
+        <div><h1>${title}</h1>${subtitle ? `<p>${subtitle}</p>` : ''}</div>
       </div>
       <div class="mini-header-actions">
         ${state.activeTab === 'orders' ? `<button class="mini-icon-button" data-action="refresh-orders" title="刷新订单" aria-label="刷新订单">${icon.refresh}</button>` : ''}
@@ -258,7 +258,7 @@ function profileView() {
   const username = state.user?.username ? `@${state.user.username}` : '未设置 Telegram 用户名';
   const photo = state.user?.photoUrl;
   return `<section class="profile-view">
-    <div class="profile-capsule"><div class="profile-avatar ${photo ? 'has-photo' : ''}"><span>${esc(initials)}</span>${photo ? `<img src="${esc(photo)}" alt="${esc(displayName)} 的 Telegram 头像" referrerpolicy="no-referrer" />` : ''}</div><div class="profile-info"><span class="profile-kicker">TELEGRAM ACCOUNT</span><h2>${esc(displayName)}</h2><p>${esc(username)}</p></div><span class="profile-status">已连接</span></div>
+    <div class="profile-capsule"><div class="profile-avatar ${photo ? 'has-photo' : ''}"><span>${esc(initials)}</span>${photo ? `<img src="${esc(photo)}" alt="${esc(displayName)} 的 Telegram 头像" referrerpolicy="no-referrer" />` : ''}</div><div class="profile-info"><span class="profile-kicker">TELEGRAM ACCOUNT</span><h2>${esc(displayName)}</h2><p>${esc(username)}</p><small class="profile-id">Telegram ID · ${esc(state.user?.telegramId ?? '')}</small></div><span class="profile-status">已连接</span></div>
     <div class="native-menu">
       <button data-action="switch-tab" data-tab="orders"><span>${icon.receipt}<b>我的订单</b></span>${icon.chevron}</button>
       ${state.publicConfig?.supportUrl ? `<button data-action="open-support"><span>${icon.support}<b>联系售后</b></span>${icon.chevron}</button>` : ''}
