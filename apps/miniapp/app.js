@@ -205,13 +205,18 @@ function setTelegramTheme() {
   if (metaThemeColor) metaThemeColor.setAttribute('content', '#f3f5fb');
 }
 
-// v1.0.27 全屏模式：Telegram 官方 requestFullscreen API。
-// 要求：BotFather 已为该小程序启用 Fullscreen；较新客户端；
-// 必须由用户手势触发（官方限制），故在首次点击时请求。
+// v1.0.28 全屏模式（自动触发版）：Telegram 官方 requestFullscreen API。
+// 官方限制：必须由用户手势触发，无法"打开即全屏"。
+// 优化：在 pointerdown（手指按下瞬间）即请求，用户一碰屏幕就进全屏，感知上接近自动；
+// click 监听作为键盘/无障碍操作兜底。
 function setupFullscreen() {
   const webApp = window.Telegram?.WebApp;
   if (!webApp || typeof webApp.requestFullscreen !== 'function') return; // 旧客户端/网页版：保持 expand 现状
+  let requested = false;
   const tryEnterFullscreen = () => {
+    if (requested) return;
+    requested = true;
+    document.removeEventListener('pointerdown', tryEnterFullscreen);
     document.removeEventListener('click', tryEnterFullscreen);
     try {
       if (!webApp.isFullscreen) {
@@ -221,6 +226,7 @@ function setupFullscreen() {
       }
     } catch { /* 忽略全屏失败，保持当前状态 */ }
   };
+  document.addEventListener('pointerdown', tryEnterFullscreen, { once: true });
   document.addEventListener('click', tryEnterFullscreen, { once: true });
 }
 
