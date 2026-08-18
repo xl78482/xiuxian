@@ -87,6 +87,37 @@ test('stores Telegram profiles and manages buyer status with order metrics', asy
   }
 });
 
+test('generates a unique slug automatically when slug is left empty', () => {
+  const { db, commerce, admin, directory } = setup();
+  try {
+    // 分类 slug 留空时按名称自动生成
+    const cat = commerce.createCategory(admin, { name: '我的_软件 Class' });
+    assert.match(cat.slug, /^[a-z0-9-]+$/);
+    assert.ok(cat.slug.length > 0);
+    // 同名分类不应冲突
+    const cat2 = commerce.createCategory(admin, { name: '我的_软件 Class' });
+    assert.notEqual(cat2.slug, cat.slug);
+
+    // 商品 slug 留空时按标题自动生成
+    const prod = commerce.createProduct(admin, { title: 'Stream Pass 年度会员', status: 'draft' });
+    assert.match(prod.slug, /^[a-z0-9-]+$/);
+    assert.ok(prod.slug.length > 0);
+    // 同名商品 slug 也能去重
+    const prod2 = commerce.createProduct(admin, { title: 'Stream Pass 年度会员', status: 'draft' });
+    assert.notEqual(prod2.slug, prod.slug);
+
+    // 商品更新时 slug 留空：按新标题重新生成，并避开自身已有 slug
+    const updated = commerce.updateProduct(admin, prod.id, { title: 'Stream Plus 年费', slug: '' });
+    const stored = db.prepare('SELECT slug FROM products WHERE id = ?').get(prod.id);
+    assert.equal(stored.slug, updated.slug);
+    assert.match(updated.slug, /^[a-z0-9-]+$/);
+    assert.notEqual(updated.slug, prod.slug);
+  } finally {
+    db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('does not expose stored card plaintext in the database', async () => {
   const { db, commerce, admin, directory } = setup();
   try {

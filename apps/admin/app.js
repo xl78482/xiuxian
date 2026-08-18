@@ -167,12 +167,12 @@ function productsView() {
   const editing = state.products.find((product) => product.id === state.editingProductId);
   return `<div class="section-bar"><div><h2>商品与规格</h2><p>价格使用人民币分存储，库存由卡密池自动计算</p></div><div class="top-actions"><button class="outline-button" data-action="toggle-panel" data-panel="category-form">${icons.plus} 新建分类</button><button class="solid-button" data-action="toggle-panel" data-panel="product-form">${icons.plus} 新建商品</button></div></div>
   <div id="category-form" class="form-panel" hidden>
-    <h3>创建分类</h3><div class="field"><label>分类名称</label><input name="category-name" placeholder="例如：软件会员" /></div><div class="field"><label>Slug</label><input name="category-slug" placeholder="software-membership" /></div><div class="field"><label>排序</label><input name="category-position" type="number" value="0" min="0" /></div><div class="form-actions"><button class="outline-button" data-action="toggle-panel" data-panel="category-form">取消</button><button class="solid-button" data-action="create-category">保存分类</button></div>
+    <h3>创建分类</h3><div class="field"><label>分类名称</label><input name="category-name" placeholder="例如：软件会员" /></div><div class="field"><label>Slug（留空自动生成）</label><input name="category-slug" placeholder="留空将根据名称自动生成" /></div><div class="field"><label>排序</label><input name="category-position" type="number" value="0" min="0" /></div><div class="form-actions"><button class="outline-button" data-action="toggle-panel" data-panel="category-form">取消</button><button class="solid-button" data-action="create-category">保存分类</button></div>
   </div>
   <div id="product-form" class="form-panel" hidden>
     <h3>创建商品</h3>
     <div class="field"><label>商品名称</label><input name="product-title" placeholder="例如：Stream Pass" /></div>
-    <div class="field"><label>Slug</label><input name="product-slug" placeholder="stream-pass" /></div>
+    <div class="field"><label>Slug（留空自动生成）</label><input name="product-slug" placeholder="留空将根据商品名称自动生成" /></div>
     <div class="field"><label>分类</label><select name="product-category"><option value="">未分类</option>${state.categories.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}</select></div>
     <div class="field"><label>状态</label><select name="product-status"><option value="draft">草稿</option><option value="active">立即上架</option></select></div>
     <div class="field full"><label>商品描述</label><textarea name="product-description" placeholder="展示在买家端的简短说明"></textarea></div>
@@ -188,7 +188,7 @@ function productRow(product) {
 }
 function productEditor(product) {
   return `<div class="form-panel" id="product-editor"><h3>编辑：${esc(product.title)}</h3>
-    <div class="field"><label>商品名称</label><input name="edit-title" value="${esc(product.title)}" /></div><div class="field"><label>Slug</label><input name="edit-slug" value="${esc(product.slug)}" /></div>
+    <div class="field"><label>商品名称</label><input name="edit-title" value="${esc(product.title)}" /></div><div class="field"><label>Slug（留空自动生成）</label><input name="edit-slug" value="${esc(product.slug)}" placeholder="留空将重新按名称生成" /></div>
     <div class="field"><label>分类</label><select name="edit-category"><option value="">未分类</option>${state.categories.map((c) => `<option value="${esc(c.id)}" ${c.id === product.categoryId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div><div class="field"><label>状态</label><select name="edit-status">${['draft','active','archived'].map((status) => `<option value="${status}" ${status === product.status ? 'selected' : ''}>${statusLabel(status)}</option>`).join('')}</select></div>
     <div class="field full"><label>描述</label><textarea name="edit-description">${esc(product.description)}</textarea></div><div class="field full"><label>使用说明</label><textarea name="edit-instructions">${esc(product.instructions)}</textarea></div><div class="field full"><label>封面路径</label><input name="edit-image" value="${esc(product.imageUrl ?? '')}" /></div>
     <div class="form-actions"><button class="outline-button" data-action="close-editor">取消</button><button class="solid-button" data-action="save-product" data-id="${esc(product.id)}">保存修改</button></div>
@@ -245,7 +245,7 @@ function settingsView() {
   const settings = state.settings ?? {};
   return `<div class="settings-grid">
     <section class="form-panel settings-panel"><h3>Telegram Bot Token</h3><p class="settings-copy">用于买家 Mini App 登录验签。Token 只在服务端加密保存，页面不会回显明文。</p><div class="notice ${settings.telegramBotTokenConfigured ? '' : 'error'}">当前状态：${settings.telegramBotTokenConfigured ? '已配置' : '未配置'}${settings.telegramBotTokenUpdatedAt ? ` · 最近更新 ${new Date(settings.telegramBotTokenUpdatedAt).toLocaleString('zh-CN')}` : ''}</div>${state.settingsNotice ? `<div class="notice ${state.settingsNotice.type === 'error' ? 'error' : ''}">${esc(state.settingsNotice.text)}</div>` : ''}<div class="field full"><label>新的 Bot Token</label><input name="telegram-bot-token" type="password" autocomplete="off" placeholder="粘贴 BotFather 提供的 Token" /></div><div class="form-actions"><button class="solid-button" data-action="save-bot-token">保存 Bot Token</button></div></section>
-    <section class="form-panel settings-panel"><h3>管理员账号</h3><p class="settings-copy">修改后台登录账号或密码。新密码至少 12 位。</p><div class="field full"><label>账号</label><input name="admin-username" value="${esc(state.user?.username ?? '')}" autocomplete="username" /></div><div class="field"><label>新密码</label><input name="admin-password" type="password" autocomplete="new-password" placeholder="留空表示不修改" /></div><div class="field"><label>确认新密码</label><input name="admin-password-confirm" type="password" autocomplete="new-password" placeholder="再次输入新密码" /></div><div class="form-actions"><button class="solid-button" data-action="save-admin-account">保存账号设置</button></div></section>
+    <section class="form-panel settings-panel"><h3>管理员账号</h3><p class="settings-copy">修改后台登录账号或密码。新密码至少 8 位。</p><div class="field full"><label>账号</label><input name="admin-username" value="${esc(state.user?.username ?? '')}" autocomplete="username" /></div><div class="field"><label>新密码</label><input name="admin-password" type="password" autocomplete="new-password" placeholder="留空表示不修改" /></div><div class="field"><label>确认新密码</label><input name="admin-password-confirm" type="password" autocomplete="new-password" placeholder="再次输入新密码" /></div><div class="form-actions"><button class="solid-button" data-action="save-admin-account">保存账号设置</button></div></section>
   </div>`;
 }
 

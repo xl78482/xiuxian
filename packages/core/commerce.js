@@ -138,6 +138,36 @@ function assertSlug(value) {
   return slug;
 }
 
+// 将任意名称（分类名、商品名）转成小写字母数字连字符形式，供 slug 自动生成使用。
+function slugifyName(value) {
+  const slug = String(value ?? '')
+    .toLowerCase()
+    .trim()
+    .replace(/[\s_]+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  return slug;
+}
+
+// 找一个数据库中当前不冲突的唯一 slug：给定基本 slug，若已存在则追加 -2、-3……；
+// slugify 后为空时使用随机短尾。用于用户可选择留空 slug 时自动生成。
+function uniqueSlug(db, table, column, base, excludeId = null) {
+  const raw = slugifyName(base);
+  const baseSlug = raw.length ? raw : `item-${randomId('').slice(0, 8)}`;
+  let slug = baseSlug;
+  let counter = 2;
+  const exclusive = excludeId ? `AND id != ?` : '';
+  const args = [slug];
+  if (excludeId) args.push(excludeId);
+  while (one(db, `SELECT id FROM ${table} WHERE ${column} = ? ${exclusive}`, ...args)) {
+    slug = `${baseSlug}-${counter++}`;
+    args[0] = slug;
+  }
+  return slug;
+}
+
 function assertImagePath(value) {
   if (value === null || value === undefined || value === '') return null;
   const imagePath = assertText(String(value), '图片路径', 1, 300);
@@ -1219,10 +1249,11 @@ export class CommerceService {
   createCategory(actor, input) {
     const id = randomId('cat_');
     const now = nowIso();
+    const categoryName = assertText(input.name, '分类名称', 1, 80);
     const category = {
       id,
-      name: assertText(input.name, '分类名称', 1, 80),
-      slug: assertSlug(input.slug),
+      name: categoryName,
+      slug: input.slug && String(input.slug).trim() ? assertSlug(input.slug) : uniqueSlug(this.db, 'categories', 'slug', categoryName),
       position: assertInteger(input.position ?? 0, '排序', 0, 10000),
     };
     run(
@@ -1248,14 +1279,16 @@ export class CommerceService {
     if (categoryId && !one(this.db, 'SELECT id FROM categories WHERE id = ?', categoryId)) {
       throw new DomainError('分类不存在。', 'category_not_found', 404);
     }
+    const productTitle = assertText(input.title, '商品名称', 1, 160);
+    const productSlug = input.slug && String(input.slug).trim() ? assertSlug(input.slug) : uniqueSlug(this.db, 'products', 'slug', productTitle);
     run(
       this.db,
       `INSERT INTO products (id, category_id, title, slug, description, instructions, image_url, status, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       categoryId,
-      assertText(input.title, '商品名称', 1, 160),
-      assertSlug(input.slug),
+      productTitle,
+      productSlug,
       String(input.description ?? '').trim(),
       String(input.instructions ?? '').trim(),
       assertImagePath(input.imageUrl),
@@ -1263,8 +1296,8 @@ export class CommerceService {
       now,
       now,
     );
-    this.audit(actor.id, 'product.created', 'product', id, { slug: input.slug });
-    return { id };
+    this.audit(actor.id, 'product.created', 'product', id, { slug: productSlug });
+    return { id, slug: productSlug };
   }
 
   updateProduct(actor, productId, input) {
@@ -1276,13 +1309,20 @@ export class CommerceService {
     }
     const status = input.status === undefined ? current.status : input.status;
     if (!['draft', 'active', 'archived'].includes(status)) throw new DomainError('商品状态无效。', 'invalid_request', 422);
+    const nextTitle = input.title === undefined ? current.title : assertText(input.title, '商品名称', 1, 160);
+    const nextSlug =
+      input.slug === undefined
+        ? current.slug
+        : input.slug && String(input.slug).trim()
+          ? assertSlug(input.slug)
+          : uniqueSlug(this.db, 'products', 'slug', nextTitle, productId);
     run(
       this.db,
       `UPDATE products SET category_id = ?, title = ?, slug = ?, description = ?, instructions = ?, image_url = ?, status = ?, updated_at = ?
        WHERE id = ?`,
       categoryId,
-      input.title === undefined ? current.title : assertText(input.title, '商品名称', 1, 160),
-      input.slug === undefined ? current.slug : assertSlug(input.slug),
+      nextTitle,
+      nextSlug,
       input.description === undefined ? current.description : String(input.description).trim(),
       input.instructions === undefined ? current.instructions : String(input.instructions).trim(),
       input.imageUrl === undefined ? current.image_url : assertImagePath(input.imageUrl),
@@ -1291,6 +1331,7 @@ export class CommerceService {
       productId,
     );
     this.audit(actor.id, 'product.updated', 'product', productId, { fields: Object.keys(input) });
+    return { id: productId, slug: nextSlug, title: nextTitle };
   }
 
   createVariant(actor, input) {

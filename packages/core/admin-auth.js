@@ -18,8 +18,8 @@ export function validateAdminUsername(value) {
 }
 
 export function validateAdminPassword(value) {
-  if (typeof value !== 'string' || value.length < 12 || value.length > 200) {
-    throw new Error('管理员密码必须是 12-200 位。');
+  if (typeof value !== 'string' || value.length < 8 || value.length > 200) {
+    throw new Error('管理员密码必须是 8-200 位。');
   }
   return value;
 }
