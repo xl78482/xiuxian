@@ -2,6 +2,9 @@ import { one, run, nowIso } from './database.js';
 
 const TELEGRAM_BOT_TOKEN_KEY = 'telegram_bot_token';
 const PAYMENT_CONFIG_KEY = 'payment_config';
+const STORE_CONFIG_KEY = 'store_config';
+
+const DEFAULT_STORE = { name: 'XiuXian', logo: null, description: '即买即发 · 安全库存' };
 
 export class SettingsStore {
   constructor(db, secretCrypto) {
@@ -72,6 +75,26 @@ export class SettingsStore {
   setPaymentConfig(config) {
     return this.set(PAYMENT_CONFIG_KEY, JSON.stringify(config));
   }
+
+  // ---- 店铺信息（名称 / Logo / 简介）----
+
+  getStoreConfig() {
+    const value = this.get(STORE_CONFIG_KEY);
+    if (!value) return { ...DEFAULT_STORE };
+    try {
+      return { ...DEFAULT_STORE, ...JSON.parse(value) };
+    } catch {
+      return { ...DEFAULT_STORE };
+    }
+  }
+
+  getStoreConfigMetadata() {
+    return this.getMetadata(STORE_CONFIG_KEY);
+  }
+
+  setStoreConfig(config) {
+    return this.set(STORE_CONFIG_KEY, JSON.stringify(config));
+  }
 }
 
-export { PAYMENT_CONFIG_KEY, TELEGRAM_BOT_TOKEN_KEY };
+export { PAYMENT_CONFIG_KEY, TELEGRAM_BOT_TOKEN_KEY, STORE_CONFIG_KEY, DEFAULT_STORE };

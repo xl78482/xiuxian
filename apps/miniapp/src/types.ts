@@ -107,9 +107,16 @@ export interface PaymentMethod {
   ready: boolean;
 }
 
+export interface StoreConfig {
+  name: string;
+  logo?: string | null;
+  description?: string | null;
+}
+
 export interface PublicConfig {
   version: string;
   supportUrl?: string | null;
+  store?: StoreConfig;
   paymentProvider: string;
   paymentConfigured: boolean;
   paymentReady: boolean;

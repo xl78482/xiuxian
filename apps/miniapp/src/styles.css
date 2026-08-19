@@ -49,7 +49,9 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(79,107,248,.
 .top-header-glow { position: absolute; top: -70%; right: -14%; width: 52%; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle, rgba(255,255,255,.28), transparent 66%); pointer-events: none; }
 .top-header-inner { position: relative; display: grid; min-height: 52px; grid-template-columns: 1fr auto 1fr; align-items: center; }
 .brand-lockup { grid-column: 1 / -1; display: inline-flex; align-items: center; justify-self: center; gap: 12px; }
-.brand-mark { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 14px; color: #fff; background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.32); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); box-shadow: inset 0 1px 0 rgba(255,255,255,.28), 0 8px 20px rgba(24,32,58,.16); font: 800 12px ui-monospace, monospace; letter-spacing: 1px; }
+.brand-mark { display: grid; width: 42px; height: 42px; place-items: center; overflow: hidden; border-radius: 14px; color: #fff; background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.32); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); box-shadow: inset 0 1px 0 rgba(255,255,255,.28), 0 8px 20px rgba(24,32,58,.16); font: 800 12px ui-monospace, monospace; letter-spacing: 1px; }
+.brand-mark.has-image { background: rgba(255,255,255,.92); }
+.brand-mark img { width: 100%; height: 100%; object-fit: cover; }
 .brand-copy { display: grid; gap: 2px; }
 .brand-lockup h1, .page-title h1 { margin: 0; color: #fff; font-size: 22px; font-weight: 800; letter-spacing: .2px; line-height: 1.1; text-shadow: 0 1px 3px rgba(24,32,58,.16); }
 .brand-lockup p, .page-title p { margin: 3px 0 0; color: rgba(255,255,255,.86); font-size: 10px; letter-spacing: .4px; line-height: 1.2; }
@@ -64,6 +66,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(79,107,248,.
 .page-title h1, .page-title p { animation: title-in .28s ease both; }
 @keyframes title-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .page-section { width: 100%; }
+.profile-section { padding-top: calc(20px + var(--safe-top)); }
 .shop-intro, .section-heading { display: flex; align-items: end; justify-content: space-between; gap: 12px; }
 .shop-intro { margin: 2px 2px 14px; }
 .shop-intro h2, .section-heading h2 { margin: 3px 0 0; color: #18203a; font-size: 20px; font-weight: 800; line-height: 1.2; }
@@ -133,7 +136,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(79,107,248,.
 .outline-button { display: inline-flex; min-height: 38px; align-items: center; justify-content: center; gap: 6px; padding: 0 15px; color: #4f6bf8; border: 1px solid rgba(79,107,248,.35); border-radius: 11px; background: transparent; font-size: 12px; font-weight: 800; }
 
 .profile-card, .menu-card, .history-card { overflow: hidden; border: 1px solid #e3e8f4; border-radius: 18px; background: #fff; box-shadow: 0 9px 26px rgba(37,53,110,.06); }
-.profile-top { display: flex; align-items: center; gap: 12px; padding: 18px 16px 16px; }
+.profile-top { display: flex; align-items: center; gap: 12px; padding: 18px 16px 12px; }
 .avatar { display: grid; width: 70px; height: 70px; place-items: center; flex: 0 0 70px; overflow: hidden; color: #fff; border: 3px solid #fff; border-radius: 50%; background: linear-gradient(135deg,#4f6bf8,#8b5cf6); box-shadow: 0 6px 18px rgba(79,107,248,.25); }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
 .profile-copy { min-width: 0; flex: 1; }
@@ -142,11 +145,12 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(79,107,248,.
 .profile-copy small { display: block; margin-top: 5px; overflow: hidden; color: #97a0b8; font: 10px ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
 .connected { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; padding: 6px 9px; color: #0e9f6e; border: 1px solid rgba(16,185,129,.2); border-radius: 999px; background: #e9faf3; font-size: 9px; font-weight: 800; white-space: nowrap; }
 .connected i { width: 7px; height: 7px; border-radius: 50%; background: #10b981; }
-.balance-row { display: flex; width: 100%; align-items: center; gap: 10px; margin: 12px 0; padding: 15px 16px; color: #fff; border: 0; border-radius: 18px; background: linear-gradient(135deg, #4f6bf8, #7c5cf0); box-shadow: 0 12px 28px rgba(79,107,248,.24); text-align: left; transition: transform .22s cubic-bezier(.34,1.5,.4,1), box-shadow .22s ease; }
-.balance-row:active { transform: scale(.985); box-shadow: 0 6px 16px rgba(79,107,248,.2); }
-.balance-row > span { color: rgba(255,255,255,.84); font-size: 11px; }
-.balance-row strong { flex: 1; color: #fff; font-size: 26px; font-weight: 800; letter-spacing: .3px; text-shadow: 0 1px 2px rgba(24,32,58,.12); }
-.balance-row em { display: inline-flex; align-items: center; gap: 4px; padding: 8px 12px; color: #4f6bf8; border-radius: 10px; background: #fff; font-size: 11px; font-style: normal; font-weight: 800; box-shadow: 0 4px 10px rgba(24,32,58,.14); }
+.balance-section { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px 16px; border-top: 1px solid #edf0f7; }
+.balance-info { display: flex; align-items: baseline; gap: 10px; flex: 1; }
+.balance-info span { color: #66708a; font-size: 12px; font-weight: 600; }
+.balance-info strong { color: #4f6bf8; font-size: 24px; font-weight: 800; letter-spacing: .3px; }
+.recharge-button { display: inline-flex; align-items: center; gap: 5px; padding: 8px 14px; color: #fff; border: 0; border-radius: 10px; background: linear-gradient(135deg, #4f6bf8, #7c5cf0); box-shadow: 0 4px 12px rgba(79,107,248,.26); font-size: 12px; font-weight: 800; transition: transform .22s cubic-bezier(.34,1.5,.4,1), box-shadow .22s ease; }
+.recharge-button:active { transform: scale(.95); box-shadow: 0 2px 8px rgba(79,107,248,.22); }
 .menu-card { margin-top: 12px; }
 .menu-card > button, .menu-card > div { display: flex; min-height: 54px; align-items: center; justify-content: space-between; width: 100%; padding: 0 16px; color: #18203a; border: 0; border-bottom: 1px solid #edf0f7; background: transparent; text-align: left; transition: background .2s ease, padding-left .25s cubic-bezier(.22,.9,.32,1); }
 .menu-card > button:active { background: #f5f7fc; padding-left: 20px; }

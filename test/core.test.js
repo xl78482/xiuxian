@@ -219,3 +219,31 @@ test('does not expose stored card plaintext in the database', async () => {
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('公开分类接口返回启用分类（含空分类，不依赖在售商品）', () => {
+  const { db, commerce, admin, directory } = setup();
+  try {
+    const now = new Date().toISOString();
+    // 空分类（无商品）：应出现在公开分类中
+    db.prepare(`INSERT INTO categories (id, name, slug, position, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)`).run('cat-empty', '空分类', 'empty', now, now);
+    // 停用分类：不应出现在公开分类中
+    db.prepare(`INSERT INTO categories (id, name, slug, position, is_active, created_at, updated_at) VALUES (?, ?, ?, 2, 0, ?, ?)`).run('cat-disabled', '停用分类', 'disabled', now, now);
+
+    const publicCategories = commerce.listPublicCategories();
+    const names = publicCategories.map((item) => item.name);
+    assert.ok(names.includes('Test'), '有商品的启用分类应返回');
+    assert.ok(names.includes('空分类'), '空分类也应返回，便于买家端分类栏展示');
+    assert.ok(!names.includes('停用分类'), '停用分类不应返回');
+    assert.ok(publicCategories.every((item) => !('productCount' in item)), '公开分类不应包含后台字段');
+
+    // 管理端分类列表应包含全部（含停用）并带商品数
+    const adminCategories = commerce.listCategories();
+    assert.equal(adminCategories.length, 3);
+    const testCategory = adminCategories.find((item) => item.slug === 'test');
+    assert.equal(testCategory.productCount, 1);
+  } finally {
+    db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+

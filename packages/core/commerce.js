@@ -2040,6 +2040,21 @@ export class CommerceService {
     }));
   }
 
+  // 公开分类：买家端分类栏独立展示所有启用分类（不依赖是否有在售商品）
+  listPublicCategories() {
+    return many(
+      this.db,
+      `SELECT id, name, slug, position
+       FROM categories WHERE is_active = 1
+       ORDER BY position, name`,
+    ).map((category) => ({
+      id: category.id,
+      name: category.name,
+      slug: category.slug,
+      position: Number(category.position),
+    }));
+  }
+
   listAdminOrders(filter = {}) {
     const conditions = [];
     const params = [];

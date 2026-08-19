@@ -24,7 +24,7 @@ import { useRawInitData, useSignal } from '@telegram-mini-apps/sdk-react';
 import { viewport } from '@telegram-mini-apps/sdk-react';
 import { createApi, ApiError } from './api';
 import { bindTelegramBackButton, setTelegramBackButton } from './telegram';
-import type { Category, Order, PaymentMethod, Product, PublicConfig, Recharge, User, Variant } from './types';
+import type { Category, Order, PaymentMethod, Product, PublicConfig, Recharge, StoreConfig, User, Variant } from './types';
 
 type OrderGroup = { key: string; label: string; statuses: readonly string[] | null };
 
@@ -155,6 +155,7 @@ function App() {
   const [user, setUser] = useState<User | null>(null);
   const [config, setConfig] = useState<PublicConfig | null>(null);
   const [catalog, setCatalog] = useState<Product[]>([]);
+  const [categoryOptions, setCategoryOptions] = useState<Category[]>([]);
   const [page, setPage] = useState<Page>(() => resolvePath(window.location.pathname, []));
   const [orders, setOrders] = useState<Order[] | null>(null);
   const [ordersLoading, setOrdersLoading] = useState(false);
@@ -189,12 +190,13 @@ function App() {
     setBooting(true);
     api.authenticate()
       .then(async (session) => {
-        const [nextConfig, nextCatalog] = await Promise.all([api.getConfig(), api.getCatalog()]);
+        const [nextConfig, nextCatalog, nextCategories] = await Promise.all([api.getConfig(), api.getCatalog(), api.getCategories()]);
         if (!alive) return;
         setUser(session.user);
         setBalance(session.user.balanceFen ?? 0);
         setConfig(nextConfig);
         setCatalog(nextCatalog);
+        setCategoryOptions(nextCategories);
         setVariants(Object.fromEntries(nextCatalog.map((product) => {
           const first = product.variants.find((variant) => variant.stock > 0) ?? product.variants[0];
           return [product.id, first?.id ?? ''];
@@ -329,11 +331,7 @@ function App() {
     return () => window.clearInterval(timer);
   }, [api, loadBalance, activeRecharge?.rechargeNo, activeRecharge?.status]);
 
-  const categories = useMemo(() => {
-    const map = new Map<string, Category>();
-    catalog.forEach((product) => { if (product.category) map.set(product.category.id, product.category); });
-    return [...map.values()];
-  }, [catalog]);
+  const categories = useMemo(() => categoryOptions, [categoryOptions]);
 
   const visibleProducts = useMemo(
     () => catalog.filter((product) => category === 'all' || product.category?.id === category),
@@ -349,9 +347,10 @@ function App() {
 
   const reloadCatalog = async () => {
     try {
-      const nextCatalog = await api.getCatalog();
+      const [nextCatalog, nextCategories] = await Promise.all([api.getCatalog(), api.getCategories()]);
       setCatalog(nextCatalog);
-      setCategory((current) => current === 'all' || nextCatalog.some((product) => product.category?.id === current) ? current : 'all');
+      setCategoryOptions(nextCategories);
+      setCategory((current) => current === 'all' || nextCategories.some((item) => item.id === current) ? current : 'all');
       setVariants((current) => Object.fromEntries(nextCatalog.map((product) => {
         const selected = current[product.id];
         const fallback = product.variants.find((variant) => variant.stock > 0) ?? product.variants[0];
@@ -491,7 +490,7 @@ function App() {
 
   return (
     <div className="app-shell" data-expanded={expanded ? 'true' : 'false'}>
-      <Header tab={activeTab} />
+      <Header tab={activeTab} store={config?.store} />
       <main className="content-shell">
         <div key={activeTab} className="tab-transition">
           {page.name === 'shop' && (
@@ -544,17 +543,26 @@ function ErrorScreen({ message, onRetry }: { message: string; onRetry: () => voi
   return <div className="center-screen"><CircleAlert className="text-rose-400" size={42} /><h1>暂时无法进入商店</h1><p>{message}</p><button className="primary-button" onClick={onRetry}>重新连接</button></div>;
 }
 
-function Header({ tab }: { tab: 'shop' | 'orders' | 'profile' }) {
+function Header({ tab, store }: { tab: 'shop' | 'orders' | 'profile'; store?: StoreConfig }) {
   const isShop = tab === 'shop';
-  const subtitle = isShop ? '数字商品商城' : tab === 'orders' ? '支付与交付记录' : '账户与余额';
+  const storeName = store?.name?.trim() || 'XiuXian';
+  const storeDescription = store?.description?.trim() || '数字商品商城';
+  const storeLogo = store?.logo?.trim();
+  const subtitle = isShop ? storeDescription : tab === 'orders' ? '支付与交付记录' : '账户与余额';
+  
+  // profile 页面不显示顶部 header
+  if (tab === 'profile') {
+    return null;
+  }
+  
   return (
     <header className="top-header">
       <span className="top-header-glow" aria-hidden="true" />
       <div className="top-header-inner">
         {isShop ? (
           <div className="brand-lockup" key="shop">
-            <span className="brand-mark">XX</span>
-            <div className="brand-copy"><h1>XiuXian</h1><p>{subtitle}</p></div>
+            {storeLogo ? <span className="brand-mark has-image"><img src={storeLogo} alt="" /></span> : <span className="brand-mark">{storeName.slice(0, 2).toUpperCase()}</span>}
+            <div className="brand-copy"><h1>{storeName}</h1><p>{subtitle}</p></div>
           </div>
         ) : (
           <div className="page-title" key={tab}>
@@ -609,7 +617,7 @@ function OrdersView({ orders, loading, filter, onFilter, onOpen, onShop }: { ord
 }
 
 function ProfileView({ user, config, balance, onOrders, onRecharge, onBalanceDetail, onSupport }: { user: User; config: PublicConfig; balance: number; onOrders: () => void; onRecharge: () => void; onBalanceDetail: () => void; onSupport: () => void }) {
-  return <section className="page-section profile-section"><div className="profile-card"><div className="profile-top"><div className={`avatar ${user.photoUrl ? 'has-image' : ''}`}>{user.photoUrl ? <img src={user.photoUrl} alt="Telegram 头像" /> : <UserRound size={30} />}</div><div className="profile-copy"><h2>{displayName(user)}</h2>{user.username && <p>@{user.username}</p>}<small>Telegram ID：{user.telegramId}</small></div><span className="connected"><i />已连接</span></div></div><button className="balance-row" onClick={onRecharge}><span>账户余额</span><strong>{money(balance)}</strong><em><WalletCards size={15} />充值</em></button><div className="menu-card"><button onClick={onOrders}><span><ClipboardList size={19} />我的订单</span><ChevronRight size={16} /></button><button onClick={onBalanceDetail}><span><WalletCards size={19} />余额明细</span><ChevronRight size={16} /></button>{config.supportUrl && <button onClick={onSupport}><span><Headphones size={19} />联系售后</span><ChevronRight size={16} /></button>}<div><span><ShieldCheck size={19} />当前版本</span><small>v{config.version}</small></div></div></section>;
+  return <section className="page-section profile-section"><div className="profile-card"><div className="profile-top"><div className={`avatar ${user.photoUrl ? 'has-image' : ''}`}>{user.photoUrl ? <img src={user.photoUrl} alt="Telegram 头像" /> : <UserRound size={30} />}</div><div className="profile-copy"><h2>{displayName(user)}</h2>{user.username && <p>@{user.username}</p>}<small>Telegram ID：{user.telegramId}</small></div><span className="connected"><i />已连接</span></div><div className="balance-section"><div className="balance-info"><span>账户余额</span><strong>{money(balance)}</strong></div><button className="recharge-button" onClick={onRecharge}><WalletCards size={15} />充值</button></div></div><div className="menu-card"><button onClick={onOrders}><span><ClipboardList size={19} />我的订单</span><ChevronRight size={16} /></button><button onClick={onBalanceDetail}><span><WalletCards size={19} />余额明细</span><ChevronRight size={16} /></button>{config.supportUrl && <button onClick={onSupport}><span><Headphones size={19} />联系售后</span><ChevronRight size={16} /></button>}<div><span><ShieldCheck size={19} />当前版本</span><small>v{config.version}</small></div></div></section>;
 }
 
 function BottomNav({ tab, onTab }: { tab: 'shop' | 'orders' | 'profile'; onTab: (tab: 'shop' | 'orders' | 'profile') => void }) {

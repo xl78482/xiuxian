@@ -236,6 +236,25 @@ function paymentConfigStatus() {
   };
 }
 
+function storeConfigStatus() {
+  const store = settings.getStoreConfig();
+  return {
+    storeName: store.name,
+    storeLogo: store.logo ?? null,
+    storeDescription: store.description ?? null,
+    storeUpdatedAt: settings.getStoreConfigMetadata().updatedAt,
+  };
+}
+
+function storeConfigInput(body) {
+  const current = settings.getStoreConfig();
+  return {
+    name: typeof body.name === 'string' && body.name.trim() ? body.name.trim().slice(0, 40) : current.name,
+    logo: typeof body.logo === 'string' && body.logo.trim() ? body.logo.trim().slice(0, 500) : null,
+    description: typeof body.description === 'string' && body.description.trim() ? body.description.trim().slice(0, 200) : '',
+  };
+}
+
 function paymentConfigInput(body) {
   const current = config.dujiaopay;
   const next = {
@@ -374,6 +393,7 @@ async function handleApi(request, response, url) {
       username: user.username,
       ...telegramBotTokenStatus(),
       ...paymentConfigStatus(),
+      ...storeConfigStatus(),
     });
   }
 
@@ -383,6 +403,7 @@ async function handleApi(request, response, url) {
     const body = assertObject(await readJson(request));
     let telegramSavedAt = null;
     let paymentSavedAt = null;
+    let storeSavedAt = null;
     if (body.telegramBotToken !== undefined) {
       if (typeof body.telegramBotToken !== 'string' || !/^\d+:[A-Za-z0-9_-]{20,}$/.test(body.telegramBotToken.trim())) {
         throw new DomainError('Telegram Bot Token 格式无效。', 'invalid_request', 422);
@@ -407,12 +428,23 @@ async function handleApi(request, response, url) {
         throw new DomainError(error instanceof Error ? error.message : '支付配置无效。', 'invalid_payment_config', 422);
       }
     }
+    const storeBody = body.store && typeof body.store === 'object' && !Array.isArray(body.store) ? body.store : body;
+    const storeKeys = ['name', 'logo', 'description'];
+    const hasStoreUpdate = body.store !== undefined || storeKeys.some((key) => Object.prototype.hasOwnProperty.call(body, key));
+    if (hasStoreUpdate) {
+      storeSavedAt = settings.setStoreConfig(storeConfigInput(storeBody));
+      commerce.audit(user.id, 'settings.store.updated', 'app_setting', 'store_config', {
+        fields: storeKeys.filter((key) => Object.prototype.hasOwnProperty.call(storeBody, key)),
+      });
+    }
     return sendJson(response, 200, {
       ...telegramBotTokenStatus(),
       ...paymentConfigStatus(),
-      savedAt: telegramSavedAt ?? paymentSavedAt,
+      ...storeConfigStatus(),
+      savedAt: telegramSavedAt ?? paymentSavedAt ?? storeSavedAt,
       telegramSavedAt,
       paymentSavedAt,
+      storeSavedAt,
     });
   }
 
@@ -449,9 +481,15 @@ async function handleApi(request, response, url) {
 
   if (method === 'GET' && pathname === '/api/public-config') {
     syncPaymentConfig();
+    const store = settings.getStoreConfig();
     return sendJson(response, 200, {
       version: config.appVersion,
       supportUrl: config.supportUrl || null,
+      store: {
+        name: store.name,
+        logo: store.logo ?? null,
+        description: store.description ?? null,
+      },
       paymentProvider: paymentProvider.name,
       paymentConfigured: paymentProvider.isConfigured(),
       paymentReady: paymentProvider.isEnabled(),
@@ -473,6 +511,10 @@ async function handleApi(request, response, url) {
 
   if (method === 'GET' && pathname === '/api/catalog') {
     return sendJson(response, 200, commerce.listCatalog());
+  }
+
+  if (method === 'GET' && pathname === '/api/categories') {
+    return sendJson(response, 200, commerce.listPublicCategories());
   }
 
   if (method === 'POST' && pathname === '/api/orders') {

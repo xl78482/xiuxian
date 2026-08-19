@@ -1,5 +1,6 @@
 import type {
   ApiErrorShape,
+  Category,
   Order,
   Product,
   PublicConfig,
@@ -84,6 +85,7 @@ export function createApi(rawInitData?: string) {
     authenticate,
     getUser: () => request<User>('/api/me'),
     getConfig: () => request<PublicConfig>('/api/public-config'),
+    getCategories: () => request<Category[]>('/api/categories'),
     getCatalog: () => request<Product[]>('/api/catalog'),
     getOrders: () => request<Order[]>('/api/orders'),
     getOrder: (orderNo: string) => request<Order>(`/api/orders/${encodeURIComponent(orderNo)}`),

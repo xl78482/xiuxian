@@ -2,7 +2,7 @@
 
 Telegram Mini App 自动发卡平台。后端使用 Node.js 22 + SQLite，买家端使用 React + TypeScript + TailwindCSS，运行时支付统一使用 DujiaoPay，买家登录统一使用 Telegram `initData`。
 
-当前版本：`1.0.41`
+当前版本：`1.0.42`
 
 开发约定：远程仓库只保留 `main` 分支，所有后续代码、文档和配置更新直接提交并推送到 `main`。
 
@@ -123,14 +123,15 @@ npm run backup -- /mnt/secure-backups
 ## API 关键路径
 
 - `POST /api/auth/telegram`：买家 Telegram 登录
+- `GET /api/categories`：公开分类（含空分类，买家端分类栏独立展示）
 - `GET /api/catalog`：公开商品目录
 - `POST /api/orders`：创建订单，需要 `Idempotency-Key`
 - `GET /api/orders/:orderNo`：查看自己的订单
 - `POST /api/orders/:orderNo/payment-session`：恢复支付会话
 - `POST /api/webhooks/dujiaopay`：DujiaoPay 回调
 - `POST /api/auth/admin/password`：独立管理员账号密码登录
-- `GET /api/admin/settings`：查看非敏感 Telegram 与支付渠道配置状态
-- `PATCH /api/admin/settings`：加密保存 Telegram Bot Token 或 DujiaoPay 支付配置
+- `GET /api/admin/settings`：查看非敏感 Telegram、支付渠道与店铺配置状态
+- `PATCH /api/admin/settings`：加密保存 Telegram Bot Token、DujiaoPay 支付配置或店铺信息（名称 / Logo / 简介）
 - `POST /api/admin/settings/test-payment`：验证已配置的 DujiaoPay 凭据
 - `PATCH /api/admin/account`：修改管理员账号或密码
 - `GET /api/admin/users`：买家资料、订单和消费统计

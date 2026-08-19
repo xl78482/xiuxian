@@ -9,7 +9,6 @@ import { openDatabase } from '../packages/core/database.js';
 import { SettingsStore } from '../packages/core/settings.js';
 
 const key = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-
 test('authenticates an independent admin and encrypts Telegram settings', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'xiuxian-admin-auth-'));
   const db = openDatabase(path.join(directory, 'test.sqlite'));
@@ -40,3 +39,32 @@ test('authenticates an independent admin and encrypts Telegram settings', () => 
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('stores and merges store profile with defaults (name / logo / description)', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'xiuxian-store-test-'));
+  const db = openDatabase(path.join(directory, 'test.sqlite'));
+  try {
+    const settings = new SettingsStore(db, createCardCrypto(key));
+    // 未配置时使用默认值
+    assert.equal(settings.getStoreConfig().name, 'XiuXian');
+    assert.equal(settings.getStoreConfig().logo, null);
+    // 保存后合并读取
+    settings.setStoreConfig({ name: '我的商店', logo: 'https://cdn.example.com/logo.png', description: '数字商品' });
+    const stored = settings.getStoreConfig();
+    assert.equal(stored.name, '我的商店');
+    assert.equal(stored.logo, 'https://cdn.example.com/logo.png');
+    assert.equal(stored.description, '数字商品');
+    assert.ok(settings.getStoreConfigMetadata().updatedAt);
+    // 加密存储，不落明文
+    const row = db.prepare('SELECT value_ciphertext FROM app_settings WHERE key = ?').get('store_config');
+    assert.equal(row.value_ciphertext.includes('我的商店'), false);
+    // 部分字段保存时保留默认
+    settings.setStoreConfig({ name: '精简商店' });
+    assert.equal(settings.getStoreConfig().name, '精简商店');
+    assert.equal(settings.getStoreConfig().logo, null);
+  } finally {
+    db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
