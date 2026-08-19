@@ -119,6 +119,7 @@ function App() {
   const [balanceEntries, setBalanceEntries] = useState<Array<{ kind: string; changeFen: number; createdAt: string }>>([]);
   const [recharge, setRecharge] = useState<Recharge | null>(initialPath.startsWith('/wallet') ? { rechargeNo: '', amountFen: 0, status: 'new' } : null);
   const [rechargeAmount, setRechargeAmount] = useState('');
+  const [balanceSheet, setBalanceSheet] = useState(false);
   const [toast, setToast] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -316,9 +317,9 @@ function App() {
             user={user}
             config={config}
             balance={balance}
-            entries={balanceEntries}
             onOrders={() => setActiveTab('orders')}
             onRecharge={() => setRecharge({ rechargeNo: '', amountFen: 0, status: 'new' })}
+            onBalanceDetail={() => setBalanceSheet(true)}
             onSupport={() => config.supportUrl && window.open(config.supportUrl, '_blank', 'noopener,noreferrer')}
           />
         )}
@@ -328,6 +329,7 @@ function App() {
       {checkout && <CheckoutSheet checkout={checkout} busy={busy} onClose={() => setCheckout(null)} onQuantity={(quantity) => setCheckout((current) => current ? { ...current, quantity } : current)} onSubmit={submitCheckout} />}
       {orderDetail && <OrderSheet order={orderDetail} onClose={() => setOrderDetail(null)} onCopy={copy} onRefresh={async () => setOrderDetail(await api.getOrder(orderDetail.orderNo))} />}
       {recharge && <RechargeSheet recharge={recharge} amount={rechargeAmount} busy={busy} onAmount={setRechargeAmount} onClose={() => setRecharge(null)} onSubmit={submitRecharge} onCopy={copy} />}
+      {balanceSheet && <BalanceSheet entries={balanceEntries} onClose={() => setBalanceSheet(false)} />}
       {toast && <div className="toast-message" role="status">{toast}</div>}
     </div>
   );
@@ -373,8 +375,8 @@ function OrdersView({ orders, loading, filter, onFilter, onOpen, onShop }: { ord
   return <section className="page-section orders-section"><div className="order-filters">{ORDER_GROUPS.map((group) => <button key={group.key} className={filter === group.key ? 'is-active' : ''} onClick={() => onFilter(group.key)}><b>{group.label}</b><small>{orders ? (group.statuses ? orders.filter((order) => group.statuses?.includes(order.status)).length : orders.length) : '·'}</small></button>)}</div>{loading ? <div className="skeleton-stack">{[1, 2, 3].map((key) => <div className="skeleton-row" key={key}><span /><div><i /><i /><i /></div></div>)}</div> : filtered.length ? <div className="order-list">{filtered.map((order) => <button className="order-row" key={order.orderNo} onClick={() => onOpen(order)}><span className="order-icon"><ClipboardList size={20} /></span><span className="order-copy"><b>{order.productTitle}</b><small>{order.variantName} · {formatDate(order.createdAt)}</small><em>{order.orderNo}</em></span><span className="order-side"><b>{money(order.totalPriceFen)}</b><em className={STATUS_TONE[order.status] ?? 'status-muted'}>{statusLabel(order.status)}</em><ChevronRight size={16} /></span></button>)}</div> : <EmptyPanel icon={<PackageOpen size={58} />} title="还没有订单" text="选购数字商品后，订单会显示在这里" action="去逛逛" onAction={onShop} />}</section>;
 }
 
-function ProfileView({ user, config, balance, entries, onOrders, onRecharge, onSupport }: { user: User; config: PublicConfig; balance: number; entries: Array<{ kind: string; changeFen: number; createdAt: string }>; onOrders: () => void; onRecharge: () => void; onSupport: () => void }) {
-  return <section className="page-section profile-section"><div className="profile-card"><div className="profile-top"><div className={`avatar ${user.photoUrl ? 'has-image' : ''}`}>{user.photoUrl ? <img src={user.photoUrl} alt="Telegram 头像" /> : <UserRound size={30} />}</div><div className="profile-copy"><h2>{displayName(user)}</h2>{user.username && <p>@{user.username}</p>}<small>Telegram ID：{user.telegramId}</small></div><span className="connected"><i />已连接</span></div><div className="balance-row"><span>账户余额</span><strong>{money(balance)}</strong><button onClick={onRecharge}><WalletCards size={16} />充值</button></div></div><div className="menu-card"><button onClick={onOrders}><span><ClipboardList size={19} />我的订单</span><ChevronRight size={16} /></button>{config.supportUrl && <button onClick={onSupport}><span><Headphones size={19} />联系售后</span><ChevronRight size={16} /></button>}<div><span><ShieldCheck size={19} />当前版本</span><small>v{config.version}</small></div></div>{entries.length > 0 && <div className="history-card"><SectionHeading label="BALANCE" title="余额明细" count={`${entries.length} 条`} />{entries.slice(0, 4).map((entry) => <div className="history-row" key={`${entry.createdAt}-${entry.kind}`}><span>{entry.kind}</span><b className={entry.changeFen >= 0 ? 'text-green' : 'text-red'}>{entry.changeFen >= 0 ? '+' : ''}{money(entry.changeFen)}</b></div>)}</div>}</section>;
+function ProfileView({ user, config, balance, onOrders, onRecharge, onBalanceDetail, onSupport }: { user: User; config: PublicConfig; balance: number; onOrders: () => void; onRecharge: () => void; onBalanceDetail: () => void; onSupport: () => void }) {
+  return <section className="page-section profile-section"><div className="profile-card"><div className="profile-top"><div className={`avatar ${user.photoUrl ? 'has-image' : ''}`}>{user.photoUrl ? <img src={user.photoUrl} alt="Telegram 头像" /> : <UserRound size={30} />}</div><div className="profile-copy"><h2>{displayName(user)}</h2>{user.username && <p>@{user.username}</p>}<small>Telegram ID：{user.telegramId}</small></div><span className="connected"><i />已连接</span></div><div className="balance-row"><span>账户余额</span><strong>{money(balance)}</strong><button onClick={onRecharge}><WalletCards size={16} />充值</button></div></div><div className="menu-card"><button onClick={onOrders}><span><ClipboardList size={19} />我的订单</span><ChevronRight size={16} /></button><button onClick={onBalanceDetail}><span><WalletCards size={19} />余额明细</span><ChevronRight size={16} /></button>{config.supportUrl && <button onClick={onSupport}><span><Headphones size={19} />联系售后</span><ChevronRight size={16} /></button>}<div><span><ShieldCheck size={19} />当前版本</span><small>v{config.version}</small></div></div></section>;
 }
 
 function BottomNav({ tab, orderCount, onTab }: { tab: 'shop' | 'orders' | 'profile'; orderCount: number; onTab: (tab: 'shop' | 'orders' | 'profile') => void }) {
@@ -393,6 +395,10 @@ function ProductSheet({ product, variant, onClose, onVariant, onCheckout }: { pr
 function CheckoutSheet({ checkout, busy, onClose, onQuantity, onSubmit }: { checkout: { product: Product; variant: Variant; quantity: number }; busy: boolean; onClose: () => void; onQuantity: (quantity: number) => void; onSubmit: () => void }) {
   const max = Math.min(checkout.variant.maxPerOrder, checkout.variant.stock);
   return <Sheet onClose={onClose}><div className="sheet-heading"><div><h2>确认订单</h2><p>付款成功后自动发卡</p></div><button className="sheet-close" onClick={onClose} aria-label="关闭"><X size={19} /></button></div><div className="checkout-line"><img src={assetUrl(checkout.product.imageUrl)} alt="" /><div><b>{checkout.product.title}</b><span>{checkout.variant.name} · {money(checkout.variant.priceFen)}</span></div></div><label className="field-label">购买数量</label><div className="quantity"><button onClick={() => onQuantity(Math.max(1, checkout.quantity - 1))}><Minus size={15} /></button><b>{checkout.quantity}</b><button onClick={() => onQuantity(Math.min(max, checkout.quantity + 1))}><Plus size={15} /></button></div><div className="total-row"><span>订单合计</span><strong>{money(checkout.variant.priceFen * checkout.quantity)}</strong></div><button className="primary-button wide" disabled={busy} onClick={onSubmit}>{busy ? <LoaderCircle className="animate-spin" size={17} /> : <ShoppingBag size={17} />}{busy ? '正在创建…' : '创建支付订单'}</button></Sheet>;
+}
+
+function BalanceSheet({ entries, onClose }: { entries: Array<{ kind: string; changeFen: number; createdAt: string }>; onClose: () => void }) {
+  return <Sheet onClose={onClose}><div className="sheet-heading"><div><h2>余额明细</h2><p>近期账户余额变动记录</p></div><button className="sheet-close" onClick={onClose} aria-label="关闭"><X size={19} /></button></div>{entries.length ? <div className="balance-history">{entries.map((entry, index) => <div className="balance-entry" key={index}><div><b>{entry.kind}</b><small>{formatDate(entry.createdAt)}</small></div><strong className={entry.changeFen >= 0 ? 'text-green' : 'text-red'}>{entry.changeFen >= 0 ? '+' : ''}{money(entry.changeFen)}</strong></div>)}</div> : <div className="empty-state"><PackageOpen size={48} className="empty-icon" /><p>暂无余额变动记录</p></div>}</Sheet>;
 }
 
 function RechargeSheet({ recharge, amount, busy, onAmount, onClose, onSubmit, onCopy }: { recharge: Recharge; amount: string; busy: boolean; onAmount: (value: string) => void; onClose: () => void; onSubmit: () => void; onCopy: (value: string) => void }) {

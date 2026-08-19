@@ -135,10 +135,15 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(79,107,248,.
 .menu-card span { display: inline-flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 700; }
 .menu-card span svg { color: #4f6bf8; }
 .menu-card small { color: #97a0b8; font-size: 11px; }
-.history-card { margin-top: 12px; padding: 14px 16px; }
-.history-card .section-heading { margin: 0 0 10px; }
-.history-row { display: flex; justify-content: space-between; padding: 9px 0; border-top: 1px solid #edf0f7; font-size: 11px; }
+.balance-history { display: grid; gap: 1px; margin-top: 14px; overflow: hidden; border-radius: 13px; background: #edf0f7; }
+.balance-entry { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 15px; background: #fff; }
+.balance-entry > div { min-width: 0; }
+.balance-entry b { display: block; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.balance-entry small { display: block; margin-top: 3px; color: #97a0b8; font-size: 10px; }
+.balance-entry > strong { flex: 0 0 auto; font-size: 14px; }
 .text-green { color: #0e9f6e; }.text-red { color: #d64545; }
+.empty-state { display: grid; place-items: center; gap: 8px; padding: 32px 20px; text-align: center; }
+.empty-state p { margin: 0; color: #97a0b8; font-size: 12px; }
 
 .bottom-nav { position: fixed; z-index: 40; right: 12px; bottom: calc(12px + var(--safe-bottom)); left: 12px; display: grid; grid-template-columns: repeat(3,1fr); gap: 5px; min-height: 66px; padding: 5px; border: 1px solid rgba(255,255,255,.95); border-radius: 22px; background: rgba(255,255,255,.9); -webkit-backdrop-filter: saturate(160%) blur(20px); backdrop-filter: saturate(160%) blur(20px); box-shadow: 0 16px 40px rgba(37,53,110,.16); }
 .bottom-nav button { position: relative; display: grid; min-width: 0; place-items: center; gap: 2px; color: #97a0b8; border: 0; border-radius: 16px; background: transparent; font-size: 10px; font-weight: 700; }
