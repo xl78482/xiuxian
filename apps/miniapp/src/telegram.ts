@@ -13,6 +13,8 @@ import {
   mountSwipeBehavior,
   mountThemeParamsSync,
   mountViewport,
+  off,
+  on,
   offBackButtonClick,
   onBackButtonClick,
   requestFullscreen,
@@ -65,11 +67,23 @@ export async function setupTelegram(): Promise<void> {
 
 export function presentTelegram(): void {
   // Telegram contract: render essential UI, call ready(), then expand() to maximum available height.
+  // 1. ready()：通知 Telegram 页面已加载完成，可安全展示内容。
   callSafe(miniAppReady);
-  callSafe(expandViewport);
+  // 2. ready 后延迟 300ms 再 expand()，避免在 Telegram 尚未就绪时过早请求展开被忽略，
+  //    导致 Mini App 停留在 Bottom Sheet 半屏状态。
+  window.setTimeout(() => {
+    callSafe(expandViewport);
+  }, 300);
+  // 3. 监听 viewportChanged：视口变化（如用户手动下拉、键盘弹出、全屏切换）时再次 expand，
+  //    确保 Mini App 始终展开到最大可用高度；失败静默忽略，不阻断页面。
+  const onViewportChanged = () => {
+    callSafe(expandViewport);
+  };
+  callSafe(on, 'viewport_changed', onViewportChanged);
+  // 4. 以下能力均不阻塞展开流程。
   callSafe(disableVerticalSwipes);
-  // 首页默认隐藏原生 BackButton；二级页面由 App 按路由状态切换显隐。
   callSafe(hideBackButton);
+  // 5. fullscreen 逻辑独立于 expand：仅监听用户首次手势触发，不干扰展开。
   setupFullscreen();
 }
 

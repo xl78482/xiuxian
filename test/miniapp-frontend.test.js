@@ -22,6 +22,8 @@ test('uses the official Telegram lifecycle and requests fullscreen on first gest
   assert.match(telegram, /pointerdown/);
   assert.match(telegram, /isAvailable/);
   assert.ok(telegram.indexOf('callSafe(miniAppReady)') < telegram.indexOf('callSafe(expandViewport)'));
+  assert.ok(telegram.indexOf('setTimeout') < telegram.indexOf('callSafe(expandViewport)'));
+  assert.match(telegram, /viewport_changed/);
 });
 
 test('does not ship demo login or mock telegram data', () => {

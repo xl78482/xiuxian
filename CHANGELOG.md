@@ -2,6 +2,16 @@
 
 本项目使用严格顺序版本 `1.0.N`。每次推送功能、修复、配置或文档更新到 GitHub，都必须把最后一位恰好增加 1，不得跳号。
 
+## [1.0.39] - 2026-08-19
+
+### Fixed
+
+- 修复 Telegram Mini App 打开后停留在 Bottom Sheet 半屏、需要用户手动展开的问题：
+  - `ready()` 后延迟 **300ms** 再执行 `expand()`，避免在 Telegram 尚未就绪时过早请求展开被忽略。
+  - 新增 `viewport_changed` 事件监听：视口变化（用户手动下拉、键盘弹出、全屏切换等）时再次 `expand()`，确保 Mini App 始终展开到最大可用高度。
+  - `expand()` 失败静默忽略，不阻断页面渲染与交互。
+  - fullscreen（`requestFullscreen`）逻辑与 `expand()` 完全独立，仍保留首次手势（`pointerdown`）触发，互不干扰。
+
 ## [1.0.38] - 2026-08-19
 
 ### Changed
