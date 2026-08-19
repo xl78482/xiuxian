@@ -83,6 +83,20 @@ function formatDate(value: string) {
   return new Date(value).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
 }
 
+function formatDateTime(value: string) {
+  return new Date(value).toLocaleString('zh-CN', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
+function paymentProviderLabel(provider?: string) {
+  if (!provider) return '—';
+  if (provider === 'dujiaopay') return 'DujiaoPay（USDT）';
+  if (provider === 'balance') return '余额支付';
+  return provider;
+}
+
 function displayName(user: User) {
   return `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || 'Telegram 用户';
 }
@@ -749,14 +763,57 @@ function RechargePage({ recharge, amount, balanceFen, methods, paymentMethod, bu
 
 function OrderPage({ order, orderNo, onBack, onCopy, onRefresh }: { order: Order | null; orderNo: string; onBack: () => void; onCopy: (value: string) => void; onRefresh: () => void }) {
   return (
-    <PageView title={order?.productTitle ?? '订单详情'} subtitle={order ? `${order.orderNo} · ${order.variantName}` : orderNo} onBack={onBack}
+    <PageView title={order?.productTitle ?? '订单详情'} subtitle={order ? `${order.orderNo}` : orderNo} onBack={onBack}
       footer={<button className="outline-button wide" onClick={onRefresh}><RefreshCw size={15} />刷新订单状态</button>}>
       {!order ? <div className="loading-panel"><LoaderCircle className="animate-spin text-accent" size={26} /><p>正在加载订单…</p></div>
         : <>
-          <span className={`order-state ${STATUS_TONE[order.status] ?? 'status-muted'}`}>{statusLabel(order.status)}</span>
+          <div className="order-detail-hero">
+            <span className={`order-state ${STATUS_TONE[order.status] ?? 'status-muted'}`}>{statusLabel(order.status)}</span>
+            {order.fulfillmentStatus && order.fulfillmentStatus !== order.status && <span className="order-state status-info">{statusLabel(order.fulfillmentStatus)}</span>}
+          </div>
+
+          <div className="page-section-block">
+            <h3 className="block-title">商品信息</h3>
+            <div className="order-detail-row"><span>商品</span><b>{order.productTitle}</b></div>
+            <div className="order-detail-row"><span>规格</span><b>{order.variantName}</b></div>
+            <div className="order-detail-row"><span>数量</span><b>× {order.quantity}</b></div>
+            <div className="order-detail-row"><span>单价</span><b>{money(Math.round(order.totalPriceFen / Math.max(order.quantity, 1)))}</b></div>
+            <div className="order-detail-row order-detail-total"><span>订单金额</span><b>{money(order.totalPriceFen)}{order.currency && order.currency !== 'CNY' ? ` ${order.currency}` : ''}</b></div>
+          </div>
+
+          {order.payment && (
+            <div className="page-section-block">
+              <h3 className="block-title">支付信息</h3>
+              <div className="order-detail-row"><span>支付方式</span><b>{paymentProviderLabel(order.payment.provider)}</b></div>
+              {order.payment.chain && <div className="order-detail-row"><span>支付网络</span><b>{order.payment.chain.toUpperCase()}</b></div>}
+              {order.payment.tokenId && <div className="order-detail-row"><span>支付代币</span><b>{order.payment.tokenId.toUpperCase()}</b></div>}
+              {order.payment.payableAmount && <div className="order-detail-row"><span>应付金额</span><b>{order.payment.payableAmount}</b></div>}
+              {order.payment.expiresAt && ['pending_payment', 'payment_confirming'].includes(order.status) && <div className="order-detail-row"><span>支付截止</span><b>{formatDateTime(order.payment.expiresAt)}</b></div>}
+              {order.paidAt && <div className="order-detail-row"><span>支付时间</span><b>{formatDateTime(order.paidAt)}</b></div>}
+              {order.payment.checkoutUrl && <div className="order-detail-row"><span>收银台</span><b className="order-detail-link">{order.payment.checkoutUrl}</b></div>}
+            </div>
+          )}
+
+          {order.cards?.length ? (
+            <div className="page-section-block">
+              <h3 className="block-title">卡密信息</h3>
+              <div className="card-codes">{order.cards.map((card) => <div key={card.code}><code>{card.code}{card.password ? <span className="card-password">密码：{card.password}</span> : null}</code><button onClick={() => onCopy(`${card.code}${card.password ? `\n密码：${card.password}` : ''}`)}><Copy size={15} /></button></div>)}</div>
+            </div>
+          ) : ['pending_payment', 'payment_confirming'].includes(order.status) ? (
+            <div className="page-section-block"><h3 className="block-title">卡密信息</h3><p className="sheet-note">支付确认后，卡密会显示在这里。</p></div>
+          ) : null}
+
           {order.payment?.paymentInstructions && ['pending_payment', 'payment_confirming'].includes(order.status) && <PaymentBlock payment={order.payment} onCopy={onCopy} />}
-          {order.cards?.length ? <div className="card-codes">{order.cards.map((card) => <div key={card.code}><code>{card.code}</code><button onClick={() => onCopy(`${card.code}${card.password ? `\n密码：${card.password}` : ''}`)}><Copy size={15} /></button></div>)}</div> : <p className="sheet-note">支付确认后，卡密会显示在这里。</p>}
-          <div className="total-row"><span>订单金额</span><strong>{money(order.totalPriceFen)}</strong></div>
+
+          {order.failureReason && (
+            <div className="page-section-block order-detail-failure"><h3 className="block-title">异常说明</h3><p>{order.failureReason}</p></div>
+          )}
+
+          <div className="page-section-block">
+            <h3 className="block-title">订单信息</h3>
+            <div className="order-detail-row"><span>订单编号</span><b className="order-detail-no">{order.orderNo}</b><button className="icon-button" onClick={() => onCopy(order.orderNo)} aria-label="复制订单号"><Copy size={14} /></button></div>
+            <div className="order-detail-row"><span>下单时间</span><b>{formatDateTime(order.createdAt)}</b></div>
+          </div>
         </>}
     </PageView>
   );

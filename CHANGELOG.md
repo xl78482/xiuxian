@@ -2,6 +2,23 @@
 
 本项目使用严格顺序版本 `1.0.N`。每次推送功能、修复、配置或文档更新到 GitHub，都必须把最后一位恰好增加 1，不得跳号。
 
+## [1.0.40] - 2026-08-19
+
+### Added
+
+- **站点对接 OpenAPI**（参考 Dujiao-Next 协议）：HMAC-SHA256 签名（`{METHOD}\n{PATH}\n{TIMESTAMP}\n{MD5(BODY)}`，±60 秒容差）；API 凭证管理（Key/Secret 加密存储，仅创建时展示一次）；对接连接管理（测试连通 / 拉取上游商品 / 创建采购单 / 处理上游回调，含回调验签）
+- **钱包退款入账**：管理端可将已支付订单退款至买家余额，写 `refund` 类型流水，幂等防重复
+- 数据库迁移 v8：`api_credentials`、`upstream_connections` 表
+
+### Changed
+
+- 订单详情页重构为 5 个信息卡片（状态 / 商品含单价数量 / 支付含网络代币与截止时间 / 卡密含密码 / 订单编号可复制），补全关键信息展示
+- 本地开发调试登录恢复：无 Telegram initData 时走 `/api/auth/dev`，生产环境仍返回 404（安全隔离）
+
+### Fixed
+
+- 修复 Telegram Mini App 打开后停留在 Bottom Sheet 半屏、需要用户手动展开的问题：`ready()` 后延迟 **300ms** 执行 `expand()`，并监听 `viewportChanged` 事件再次展开；失败静默不阻断页面；fullscreen 独立于 expand 保留手势触发
+
 ## [1.0.39] - 2026-08-19
 
 ### Fixed

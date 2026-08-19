@@ -299,6 +299,32 @@ export function openDatabase(databasePath) {
             CREATE INDEX IF NOT EXISTS idx_recharge_pay_merchant ON recharge_payments(merchant_order_id);
             CREATE INDEX IF NOT EXISTS idx_recharge_pay_provider ON recharge_payments(provider_order_id);`,
     },
+    {
+      version: 8,
+      sql: `CREATE TABLE IF NOT EXISTS api_credentials (
+              id TEXT PRIMARY KEY,
+              owner_user_id TEXT NOT NULL REFERENCES users(id),
+              api_key TEXT NOT NULL UNIQUE,
+              secret_ciphertext TEXT NOT NULL,
+              is_active INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS upstream_connections (
+              id TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              base_url TEXT NOT NULL,
+              api_key TEXT NOT NULL,
+              secret_ciphertext TEXT NOT NULL,
+              callback_url TEXT,
+              is_active INTEGER NOT NULL DEFAULT 1,
+              last_ping_at TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_api_credentials_key ON api_credentials(api_key);
+            CREATE INDEX IF NOT EXISTS idx_upstream_connections_active ON upstream_connections(is_active);`,
+    },
   ];
   const applied = new Set(db.prepare('SELECT version FROM schema_migrations').all().map((row) => Number(row.version)));
   for (const migration of migrations) {

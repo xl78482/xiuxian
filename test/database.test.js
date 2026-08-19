@@ -32,7 +32,7 @@ test('migration 5 cancels legacy mock orders and releases reserved cards', () =>
     assert.equal(db.prepare(`SELECT status FROM orders WHERE id = 'order'`).get().status, 'canceled');
     assert.equal(db.prepare(`SELECT status FROM payment_transactions WHERE id = 'payment'`).get().status, 'canceled');
     assert.equal(db.prepare(`SELECT state, reserved_for_order_id FROM card_credentials WHERE id = 'card'`).get().state, 'available');
-    assert.equal(db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get().version, 7);
+    assert.equal(db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get().version, 8);
   } finally {
     db.close();
     fs.rmSync(directory, { recursive: true, force: true });

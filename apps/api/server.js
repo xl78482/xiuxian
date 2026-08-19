@@ -12,7 +12,7 @@ import { maskSecret } from '../../packages/payment/config.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const runtime = createRuntime(root);
-const { config, commerce, paymentProvider, settings, adminAccounts, refreshPaymentConfig } = runtime;
+const { config, commerce, paymentProvider, settings, adminAccounts, upstream, refreshPaymentConfig } = runtime;
 
 const requestCounts = new Map();
 let lastRateLimitCleanup = 0;
@@ -339,6 +339,24 @@ async function handleApi(request, response, url) {
     return sendJson(response, 200, issueBuyerSession(user));
   }
 
+  if (method === 'POST' && pathname === '/api/auth/dev') {
+    // 仅本地开发环境可用的调试登录：生产环境一律 404，不提供开发账号。
+    if (config.isProduction) throw new DomainError('未找到接口。', 'not_found', 404);
+    if (!checkRateLimit(request, response, 20)) return;
+    const body = assertObject(await readJson(request));
+    const profile = body.profile && typeof body.profile === 'object' && !Array.isArray(body.profile) ? body.profile : {};
+    const telegramUser = {
+      id: Number.isSafeInteger(profile.id) ? profile.id : 777777001,
+      first_name: typeof profile.first_name === 'string' && profile.first_name.trim() ? profile.first_name.trim().slice(0, 64) : '模拟用户',
+      last_name: typeof profile.last_name === 'string' && profile.last_name.trim() ? profile.last_name.trim().slice(0, 64) : null,
+      username: typeof profile.username === 'string' && profile.username.trim() ? profile.username.trim().replace(/^@/, '').slice(0, 32) : 'dev_demo',
+      language_code: 'zh-hans',
+    };
+    const user = commerce.upsertTelegramUser(telegramUser);
+    commerce.audit(user.id, 'dev.mock_login', 'app_setting', 'telegram_user', { mode: 'development' });
+    return sendJson(response, 200, issueBuyerSession(user));
+  }
+
   if (method === 'POST' && pathname === '/api/auth/admin/password') {
     if (!checkRateLimit(request, response, 10)) return;
     const body = assertObject(await readJson(request));
@@ -635,6 +653,149 @@ async function handleApi(request, response, url) {
       batchLabel: body.batchLabel,
       cards,
     }));
+  }
+
+  // ---- 站点对接 OpenAPI（本站作为 B 站被对接方，接收 A 站采购请求） ----
+  const upstreamBase = pathname.match(/^\/api\/v1\/upstream(\/.*)?$/);
+  if (upstreamBase) {
+    const sub = upstreamBase[1] ?? '/';
+    // 本站作为 A 站接收 B 站回调：B 站用连接中配置的 key/secret 签名（B 站视角即本站凭证），
+    // 但回调本身不需要本站 API 凭证，直接读取并处理（由业务层做订单校验）。
+    if (method === 'POST' && sub === '/callback') {
+      const rawBody = await readBody(request);
+      const payload = rawBody.length ? JSON.parse(rawBody.toString('utf8')) : {};
+      // 校验 B 站签名（若携带签名头）；无签名头回退为仅校验订单号（本地测试/旧对接方）。
+      upstream.authenticateCallback(request, rawBody);
+      const result = await upstream.handleUpstreamCallback(payload);
+      return sendJson(response, 200, result);
+    }
+    const rawBody = await readBody(request);
+    const body = rawBody.length ? JSON.parse(rawBody.toString('utf8')) : {};
+    upstream.authenticateRequest(request, rawBody);
+    if (method === 'POST' && (sub === '/ping' || sub === '/')) {
+      return sendJson(response, 200, {
+        ok: true,
+        site_name: 'XiuXian',
+        protocol_version: '1.0',
+        user_id: null,
+        balance: '0.00',
+        currency: 'CNY',
+        member_level: null,
+      });
+    }
+    if (method === 'GET' && sub === '/categories') {
+      return sendJson(response, 200, {
+        ok: true,
+        categories: commerce.listCategories().map((item) => ({
+          id: item.id,
+          parent_id: 0,
+          slug: item.slug,
+          name: { 'zh-CN': item.name, en: item.name },
+          icon: '',
+          sort_order: item.position ?? 0,
+        })),
+      });
+    }
+    if (method === 'GET' && sub === '/products') {
+      const products = commerce.listCatalog();
+      return sendJson(response, 200, {
+        ok: true,
+        items: products.map((product) => ({
+          id: product.id,
+          slug: product.slug,
+          title: { 'zh-CN': product.title, en: product.title },
+          description: { 'zh-CN': product.description ?? '' },
+          content: {},
+          seo_meta: {},
+          images: product.imageUrl ? [product.imageUrl] : [],
+          tags: [],
+          price_amount: product.variants?.[0] ? String((product.variants[0].priceFen ?? 0) / 100) : '0.00',
+          fulfillment_type: 'auto',
+          manual_form_schema: null,
+          is_active: true,
+          category_id: product.category?.id ?? 0,
+          skus: (product.variants ?? []).map((variant) => ({
+            id: variant.id,
+            sku_code: variant.sku ?? '',
+            spec_values: { name: variant.name },
+            price_amount: String((variant.priceFen ?? 0) / 100),
+            stock_status: (variant.stock ?? 0) > 0 ? (variant.stock > 20 ? 'in_stock' : 'low_stock') : 'out_of_stock',
+            stock_quantity: variant.stock ?? 0,
+            is_active: true,
+          })),
+          created_at: null,
+          updated_at: null,
+        })),
+        total: products.length,
+        page: 1,
+        page_size: products.length || 1,
+      });
+    }
+    throw new DomainError('未找到上游接口。', 'not_found', 404);
+  }
+
+  // ---- 站点对接：管理端（凭证 / 连接 / 退款入账） ----
+  if (method === 'POST' && pathname === '/api/admin/upstream/credentials') {
+    const user = requireAdmin(request);
+    return sendJson(response, 201, upstream.createApiCredential(user, assertObject(await readJson(request))));
+  }
+  if (method === 'GET' && pathname === '/api/admin/upstream/credentials') {
+    requireAdmin(request);
+    return sendJson(response, 200, upstream.listApiCredentials());
+  }
+  const credentialToggleMatch = pathname.match(/^\/api\/admin\/upstream\/credentials\/([A-Za-z0-9_-]+)$/);
+  if (method === 'PATCH' && credentialToggleMatch) {
+    const user = requireAdmin(request);
+    const body = assertObject(await readJson(request));
+    return sendJson(response, 200, upstream.setApiCredentialActive(credentialToggleMatch[1], Boolean(body.isActive)));
+  }
+  if (method === 'POST' && pathname === '/api/admin/upstream/connections') {
+    const user = requireAdmin(request);
+    return sendJson(response, 201, upstream.createConnection(user, assertObject(await readJson(request))));
+  }
+  if (method === 'GET' && pathname === '/api/admin/upstream/connections') {
+    requireAdmin(request);
+    return sendJson(response, 200, upstream.listConnections());
+  }
+  const connectionTestMatch = pathname.match(/^\/api\/admin\/upstream\/connections\/([A-Za-z0-9_-]+)\/test$/);
+  if (method === 'POST' && connectionTestMatch) {
+    requireAdmin(request);
+    const result = await upstream.testConnection(connectionTestMatch[1]);
+    return sendJson(response, 200, result);
+  }
+  const connectionMatch = pathname.match(/^\/api\/admin\/upstream\/connections\/([A-Za-z0-9_-]+)$/);
+  if (method === 'PATCH' && connectionMatch) {
+    requireAdmin(request);
+    const body = assertObject(await readJson(request));
+    return sendJson(response, 200, upstream.setConnectionActive(connectionMatch[1], Boolean(body.isActive)));
+  }
+  if (method === 'DELETE' && connectionMatch) {
+    requireAdmin(request);
+    return sendJson(response, 200, upstream.deleteConnection(connectionMatch[1]));
+  }
+  // ---- 站点对接：采购单（对接方 A 站操作） ----
+  if (method === 'POST' && pathname === '/api/admin/upstream/procurement') {
+    const user = requireAdmin(request);
+    const body = assertObject(await readJson(request));
+    const result = await upstream.createProcurementOrder(body.connectionId, {
+      skuId: body.skuId,
+      quantity: body.quantity,
+      downstreamOrderNo: body.downstreamOrderNo,
+    });
+    return sendJson(response, 200, result);
+  }
+  if (method === 'POST' && pathname === '/api/admin/upstream/sync') {
+    const user = requireAdmin(request);
+    const body = assertObject(await readJson(request));
+    const products = await upstream.syncUpstreamProducts(body.connectionId);
+    return sendJson(response, 200, { ok: true, items: products });
+  }
+
+  const refundMatch = pathname.match(/^\/api\/admin\/orders\/(XX\d{14}[A-F0-9]{8})\/refund-to-balance$/);
+  if (method === 'POST' && refundMatch) {
+    const user = requireAdmin(request);
+    const body = assertObject(await readJson(request));
+    return sendJson(response, 200, commerce.refundOrderToBalance(user, refundMatch[1], { reason: body.reason }));
   }
 
   throw new DomainError('未找到接口。', 'not_found', 404);

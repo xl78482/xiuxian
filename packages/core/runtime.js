@@ -4,6 +4,7 @@ import { createCardCrypto } from './crypto.js';
 import { openDatabase } from './database.js';
 import { SettingsStore } from './settings.js';
 import { CommerceService } from './commerce.js';
+import { UpstreamService } from './upstream.js';
 import { DujiaoPayProvider } from '../payment/dujiaopay.js';
 import { normalizeDujiaoPayConfig, validateDujiaoPayConfig } from '../payment/config.js';
 
@@ -55,5 +56,11 @@ export function createRuntime(rootDirectory = process.cwd()) {
     paymentProvider,
     cardCrypto,
   });
-  return { config, db, settings, adminAccounts, paymentProvider, commerce, refreshPaymentConfig, reloadPaymentConfig };
+  const upstream = new UpstreamService({
+    db,
+    config,
+    cardCrypto,
+    commerce,
+  });
+  return { config, db, settings, adminAccounts, paymentProvider, commerce, upstream, refreshPaymentConfig, reloadPaymentConfig };
 }

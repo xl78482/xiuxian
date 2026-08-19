@@ -1920,6 +1920,62 @@ export class CommerceService {
     }));
   }
 
+  // 订单退款入账：把已支付订单金额退回买家余额并写流水（幂等，同一订单只入账一次）。
+  refundOrderToBalance(actor, orderNo, options = {}) {
+    const row = one(
+      this.db,
+      `SELECT o.*, pt.provider FROM orders o LEFT JOIN payment_transactions pt ON pt.order_id = o.id
+       WHERE o.order_no = ?`,
+      orderNo,
+    );
+    if (!row) throw new DomainError('订单不存在。', 'order_not_found', 404);
+    const refundKey = `refund:${row.id}`;
+    const existing = one(
+      this.db,
+      `SELECT 1 FROM balance_entries WHERE user_id = ? AND source = 'refund' AND memo = ? LIMIT 1`,
+      row.user_id,
+      refundKey,
+    );
+    if (existing) throw new DomainError('该订单已退款入账，请勿重复操作。', 'refund_already_recorded', 409);
+    const refundableStatuses = ['paid', 'fulfilling', 'completed', 'fulfillment_failed'];
+    if (!refundableStatuses.includes(row.status)) {
+      throw new DomainError('当前订单状态不可退款。', 'refund_not_allowed', 409);
+    }
+    const amountFen = Number(row.total_price_fen);
+    const user = one(this.db, 'SELECT * FROM users WHERE id = ?', row.user_id);
+    if (!user) throw new DomainError('订单买家不存在。', 'user_not_found', 404);
+    const current = Number(user.balance_fen ?? 0);
+    const next = current + amountFen;
+    const now = nowIso();
+    transaction(this.db, () => {
+      run(this.db, 'UPDATE users SET balance_fen = ?, updated_at = ? WHERE id = ?', next, now, row.user_id);
+      run(
+        this.db,
+        `INSERT INTO balance_entries (id, user_id, change_fen, balance_after_fen, kind, memo, source, created_at)
+         VALUES (?, ?, ?, ?, 'refund', ?, 'refund', ?)`,
+        randomId('bal_'),
+        row.user_id,
+        amountFen,
+        next,
+        refundKey,
+        now,
+      );
+      run(
+        this.db,
+        `UPDATE orders SET status = 'refunded', failure_reason = ?, updated_at = ? WHERE id = ?`,
+        options.reason ?? '订单已退款，金额退回账户余额。',
+        now,
+        row.id,
+      );
+    });
+    this.audit(actor.id, 'order.refund_to_balance', 'order', row.id, {
+      orderNo,
+      amountFen,
+      reason: options.reason ?? null,
+    });
+    return { orderNo, refundedFen: amountFen, balanceAfterFen: next };
+  }
+
   updateUserStatus(actor, userId, isActive) {
     if (typeof isActive !== 'boolean') throw new DomainError('用户状态无效。', 'invalid_request', 422);
     const user = one(this.db, `SELECT * FROM users WHERE id = ? AND role != 'admin' AND telegram_id NOT LIKE 'admin:%'`, userId);

@@ -26,10 +26,10 @@ test('uses the official Telegram lifecycle and requests fullscreen on first gest
   assert.match(telegram, /viewport_changed/);
 });
 
-test('does not ship demo login or mock telegram data', () => {
-  assert.doesNotMatch(api, /\/api\/auth\/dev/);
-  assert.doesNotMatch(api, /dev_demo/);
-  assert.doesNotMatch(api, /模拟用户/);
+test('keeps dev login strictly non-production (404 in production)', () => {
+  assert.match(api, /\/api\/auth\/dev/);
+  assert.match(api, /status === 404/);
+  assert.match(api, /telegram_init_data_missing/);
   assert.doesNotMatch(app, /dev-tag/);
   assert.doesNotMatch(app, /dev-notice/);
   assert.doesNotMatch(app, /777777001/);

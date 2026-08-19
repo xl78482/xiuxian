@@ -49,7 +49,24 @@ export function createApi(rawInitData?: string) {
   const authenticate = async (): Promise<Session> => {
     if (refreshPromise) return refreshPromise;
     if (!rawInitData) {
-      throw new ApiError('无法获取 Telegram 登录信息，请从机器人菜单重新打开小程序。', 401, 'telegram_init_data_missing');
+      // 本地开发环境（浏览器直接打开，无 Telegram initData）使用服务端 dev 调试登录；
+      // 生产环境该接口返回 404，自动降级为真实错误提示。
+      refreshPromise = request<Session>('/api/auth/dev', {
+        method: 'POST',
+        body: JSON.stringify({ profile: { first_name: '模拟用户', username: 'dev_demo' } }),
+      }, false)
+        .then((session) => {
+          accessToken = session.accessToken;
+          return session;
+        })
+        .catch((error: unknown) => {
+          if (error instanceof ApiError && error.status === 404) {
+            throw new ApiError('无法获取 Telegram 登录信息，请从机器人菜单重新打开小程序。', 401, 'telegram_init_data_missing');
+          }
+          throw error;
+        })
+        .finally(() => { refreshPromise = null; });
+      return refreshPromise;
     }
     refreshPromise = request<Session>('/api/auth/telegram', {
       method: 'POST',
