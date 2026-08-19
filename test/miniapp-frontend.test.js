@@ -10,14 +10,16 @@ const styles = fs.readFileSync(path.join(root, 'apps/miniapp/src/styles.css'), '
 const app = fs.readFileSync(path.join(root, 'apps/miniapp/src/App.tsx'), 'utf8');
 const api = fs.readFileSync(path.join(root, 'apps/miniapp/src/api.ts'), 'utf8');
 
-test('uses the official Telegram lifecycle without fullscreen requests', () => {
+test('uses the official Telegram lifecycle and requests fullscreen on first gesture', () => {
   assert.match(telegram, /useRawInitData|@telegram-mini-apps\/sdk-react/);
   assert.match(telegram, /miniAppReady/);
   assert.match(telegram, /expandViewport/);
   assert.match(telegram, /disableVerticalSwipes/);
   assert.match(telegram, /hideBackButton/);
+  assert.match(telegram, /requestFullscreen/);
+  assert.match(telegram, /pointerdown/);
+  assert.match(telegram, /isAvailable/);
   assert.ok(telegram.indexOf('callSafe(miniAppReady)') < telegram.indexOf('callSafe(expandViewport)'));
-  assert.doesNotMatch(telegram, /requestFullscreen|exitFullscreen/);
 });
 
 test('uses dynamic viewport and safe-area layout instead of 100vh', () => {
