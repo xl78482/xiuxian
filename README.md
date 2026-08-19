@@ -2,7 +2,7 @@
 
 Telegram Mini App 自动发卡平台。后端使用 Node.js 22 + SQLite，买家端使用 React + TypeScript + TailwindCSS，运行时支付统一使用 DujiaoPay，买家登录统一使用 Telegram `initData`。
 
-当前版本：`1.0.35`
+当前版本：`1.0.36`
 
 开发约定：远程仓库只保留 `main` 分支，所有后续代码、文档和配置更新直接提交并推送到 `main`。
 

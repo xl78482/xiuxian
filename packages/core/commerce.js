@@ -124,9 +124,13 @@ function toOrderSummary(row) {
   };
 }
 
-function assertIdempotentOrderMatches(order, variantId, quantity) {
-  if (order.variant_id !== variantId || Number(order.quantity) !== quantity) {
-    throw new DomainError('相同 Idempotency-Key 不能用于不同的商品或数量。', 'idempotency_conflict', 409);
+function assertIdempotentOrderMatches(order, variantId, quantity, paymentMethod) {
+  if (
+    order.variant_id !== variantId
+    || Number(order.quantity) !== quantity
+    || order.provider !== paymentMethod
+  ) {
+    throw new DomainError('相同 Idempotency-Key 不能用于不同的商品、数量或支付方式。', 'idempotency_conflict', 409);
   }
   return order;
 }
@@ -308,15 +312,21 @@ export class CommerceService {
     const variantId = assertText(input.variantId, '商品规格', 1, 128);
     const quantity = assertInteger(input.quantity, '购买数量', 1, 20);
     const requestKey = assertText(input.idempotencyKey, '请求标识', 8, 128);
+    const paymentMethod = typeof input.paymentMethod === 'string' && input.paymentMethod.trim()
+      ? input.paymentMethod.trim()
+      : this.paymentProvider.name;
+    if (!['balance', this.paymentProvider.name].includes(paymentMethod)) {
+      throw new DomainError('暂不支持的支付方式。', 'invalid_payment_method', 422);
+    }
 
     const existing = this.findOrderByRequest(user.id, requestKey);
-    if (existing) return this.ensurePaymentSession(assertIdempotentOrderMatches(existing, variantId, quantity), user.id);
+    if (existing) return this.ensurePaymentSession(assertIdempotentOrderMatches(existing, variantId, quantity, paymentMethod), user.id);
 
     let localOrder;
     try {
       localOrder = transaction(this.db, () => {
         const concurrent = this.findOrderByRequest(user.id, requestKey);
-        if (concurrent) return assertIdempotentOrderMatches(concurrent, variantId, quantity);
+        if (concurrent) return assertIdempotentOrderMatches(concurrent, variantId, quantity, paymentMethod);
         const variant = one(
           this.db,
           `SELECT p.id AS product_id, p.title AS product_title, p.status AS product_status,
@@ -348,13 +358,18 @@ export class CommerceService {
         const id = randomId('ord_');
         const orderNo = orderNumber();
         const totalPriceFen = Number(variant.price_fen) * quantity;
+        const paidNow = paymentMethod === 'balance';
+        const userBalance = paidNow ? Number(one(this.db, 'SELECT balance_fen FROM users WHERE id = ?', user.id)?.balance_fen ?? 0) : 0;
+        if (paidNow && userBalance < totalPriceFen) {
+          throw new DomainError('余额不足，请先充值。', 'insufficient_balance', 422);
+        }
         run(
           this.db,
           `INSERT INTO orders (
              id, order_no, user_id, product_id, variant_id, product_title_snapshot,
              variant_name_snapshot, quantity, unit_price_fen, total_price_fen,
              status, fulfillment_status, payment_deadline, client_request_key, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_payment', 'pending', ?, ?, ?, ?)`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
           id,
           orderNo,
           user.id,
@@ -365,7 +380,8 @@ export class CommerceService {
           quantity,
           Number(variant.price_fen),
           totalPriceFen,
-          addMinutes(this.config.paymentTtlMinutes),
+          paidNow ? 'paid' : 'pending_payment',
+          paidNow ? now : addMinutes(this.config.paymentTtlMinutes),
           requestKey,
           now,
           now,
@@ -387,22 +403,58 @@ export class CommerceService {
           `INSERT INTO payment_transactions (
              id, order_id, provider, merchant_order_id, idempotency_key, status,
              fiat_amount, fiat_currency, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, 'awaiting_payment', ?, 'CNY', ?, ?)`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, 'CNY', ?, ?)`,
           randomId('pay_'),
           id,
-          this.paymentProvider.name,
+          paymentMethod,
           orderNo,
           orderNo,
+          paidNow ? 'paid' : 'awaiting_payment',
           (totalPriceFen / 100).toFixed(2),
           now,
           now,
         );
+        if (paidNow) {
+          const nextBalance = userBalance - totalPriceFen;
+          run(
+            this.db,
+            'UPDATE users SET balance_fen = ?, updated_at = ? WHERE id = ?',
+            nextBalance,
+            now,
+            user.id,
+          );
+          run(
+            this.db,
+            `INSERT INTO balance_entries (id, user_id, change_fen, balance_after_fen, kind, memo, source, created_at)
+             VALUES (?, ?, ?, ?, 'purchase', ?, 'balance', ?)`,
+            randomId('bal_'),
+            user.id,
+            -totalPriceFen,
+            nextBalance,
+            `购买 ${variant.product_title} × ${quantity}`,
+            now,
+          );
+          run(
+            this.db,
+            `INSERT INTO fulfillment_jobs (id, order_id, status, attempts, run_after, created_at, updated_at)
+             VALUES (?, ?, 'pending', 0, ?, ?, ?)
+             ON CONFLICT(order_id) DO UPDATE SET
+               status = CASE WHEN fulfillment_jobs.status = 'completed' THEN 'completed' ELSE 'pending' END,
+               run_after = CASE WHEN fulfillment_jobs.status = 'completed' THEN fulfillment_jobs.run_after ELSE excluded.run_after END,
+               locked_at = NULL, last_error = NULL, updated_at = excluded.updated_at`,
+            randomId('job_'),
+            id,
+            now,
+            now,
+            now,
+          );
+        }
         return this.findOrderByNo(orderNo, user.id);
       });
     } catch (error) {
       if (isSqliteUniqueError(error)) {
         const duplicate = this.findOrderByRequest(user.id, requestKey);
-        if (duplicate) return this.ensurePaymentSession(assertIdempotentOrderMatches(duplicate, variantId, quantity), user.id);
+        if (duplicate) return this.ensurePaymentSession(assertIdempotentOrderMatches(duplicate, variantId, quantity, paymentMethod), user.id);
       }
       throw error;
     }
@@ -1645,6 +1697,12 @@ export class CommerceService {
   async createRecharge(user, input) {
     const amountFen = assertInteger(input.amountFen, '充值金额', 1, 100000000);
     const requestKey = assertText(input.idempotencyKey, '请求标识', 8, 128);
+    const provider = typeof input.provider === 'string' && input.provider.trim()
+      ? input.provider.trim()
+      : this.paymentProvider.name;
+    if (provider !== this.paymentProvider.name) {
+      throw new DomainError('暂不支持的支付方式。', 'invalid_payment_provider', 422);
+    }
     const existing = this.rechargeByClientKey(user.id, requestKey);
     if (existing) return this.ensureRechargeSession(existing, user.id);
     const enabled = this.paymentProvider.isEnabled !== false;
@@ -1679,7 +1737,7 @@ export class CommerceService {
            VALUES (?, ?, ?, ?, ?, 'awaiting_payment', ?, 'CNY', ?, ?)`,
           randomId('rcpay_'),
           id,
-          this.paymentProvider.name,
+          provider,
           rechargeNo,
           rechargeNo,
           (amountFen / 100).toFixed(2),

@@ -86,6 +86,29 @@ test('rejects reuse of an idempotency key for a different quantity', async () =>
   }
 });
 
+test('rejects reuse of an idempotency key for a different payment method', async () => {
+  const context = setup();
+  try {
+    await context.commerce.createOrder(context.admin, {
+      variantId: 'variant',
+      quantity: 1,
+      idempotencyKey: 'payment-method-key',
+      paymentMethod: 'test',
+    });
+    assert.throws(
+      () => context.commerce.createOrder(context.admin, {
+        variantId: 'variant',
+        quantity: 1,
+        idempotencyKey: 'payment-method-key',
+        paymentMethod: 'balance',
+      }),
+      (error) => error.code === 'idempotency_conflict' && error.status === 409,
+    );
+  } finally {
+    context.close();
+  }
+});
+
 test('records failed webhooks and safely retries the identical event', async () => {
   const context = setup();
   try {

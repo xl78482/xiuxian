@@ -9,7 +9,7 @@ RUN npm run typecheck && npm run build
 
 FROM node:22.23.2-alpine
 LABEL org.opencontainers.image.title="XiuXian" \
-      org.opencontainers.image.version="1.0.35" \
+      org.opencontainers.image.version="1.0.36" \
       org.opencontainers.image.source="https://github.com/xl78482/xiuxian"
 WORKDIR /app
 COPY --chown=node:node apps/api ./apps/api

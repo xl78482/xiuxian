@@ -96,6 +96,17 @@ export interface Recharge {
   payment?: PaymentSummary;
 }
 
+export interface PaymentMethod {
+  id: string;
+  name: string;
+  label?: string;
+  description?: string;
+  chain?: string;
+  tokenId?: string;
+  enabled: boolean;
+  ready: boolean;
+}
+
 export interface PublicConfig {
   version: string;
   supportUrl?: string | null;
@@ -105,6 +116,7 @@ export interface PublicConfig {
   paymentEnabled: boolean;
   paymentChain?: string;
   paymentToken?: string;
+  paymentMethods?: PaymentMethod[];
 }
 
 export interface Session {

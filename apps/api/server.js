@@ -339,6 +339,23 @@ async function handleApi(request, response, url) {
     return sendJson(response, 200, issueBuyerSession(user));
   }
 
+  if (method === 'POST' && pathname === '/api/auth/dev') {
+    if (config.isProduction) throw new DomainError('未找到接口。', 'not_found', 404);
+    if (!checkRateLimit(request, response, 20)) return;
+    const body = assertObject(await readJson(request));
+    const profile = body.profile && typeof body.profile === 'object' && !Array.isArray(body.profile) ? body.profile : {};
+    const telegramUser = {
+      id: Number.isSafeInteger(profile.id) ? profile.id : 777777001,
+      first_name: typeof profile.first_name === 'string' && profile.first_name.trim() ? profile.first_name.trim().slice(0, 64) : '模拟用户',
+      last_name: typeof profile.last_name === 'string' && profile.last_name.trim() ? profile.last_name.trim().slice(0, 64) : null,
+      username: typeof profile.username === 'string' && profile.username.trim() ? profile.username.trim().replace(/^@/, '').slice(0, 32) : 'dev_demo',
+      language_code: 'zh-hans',
+    };
+    const user = commerce.upsertTelegramUser(telegramUser);
+    commerce.audit(user.id, 'dev.mock_login', 'app_setting', 'telegram_user', { mode: 'development' });
+    return sendJson(response, 200, issueBuyerSession(user));
+  }
+
   if (method === 'POST' && pathname === '/api/auth/admin/password') {
     if (!checkRateLimit(request, response, 10)) return;
     const body = assertObject(await readJson(request));
@@ -440,6 +457,16 @@ async function handleApi(request, response, url) {
       paymentEnabled: Boolean(config.dujiaopay.enabled),
       paymentChain: config.dujiaopay.chain,
       paymentToken: config.dujiaopay.tokenId,
+      paymentMethods: [{
+        id: 'dujiaopay',
+        name: 'DujiaoPay',
+        label: 'USDT 扫码支付',
+        description: `USDT（${config.dujiaopay.chain.toUpperCase()} 网络）`,
+        chain: config.dujiaopay.chain,
+        tokenId: config.dujiaopay.tokenId,
+        enabled: Boolean(config.dujiaopay.enabled),
+        ready: paymentProvider.isEnabled(),
+      }],
     });
   }
 
@@ -450,13 +477,17 @@ async function handleApi(request, response, url) {
   if (method === 'POST' && pathname === '/api/orders') {
     if (!checkRateLimit(request, response, 20)) return;
     const user = requireUser(request);
-    syncPaymentConfig();
-    assertPaymentReady();
     const body = assertObject(await readJson(request));
+    const paymentMethod = typeof body.paymentMethod === 'string' && body.paymentMethod.trim() ? body.paymentMethod.trim() : undefined;
+    if (paymentMethod !== 'balance') {
+      syncPaymentConfig();
+      assertPaymentReady();
+    }
     const order = await commerce.createOrder(user, {
       variantId: body.variantId,
       quantity: body.quantity,
       idempotencyKey: requireIdempotencyKey(request),
+      paymentMethod,
     });
     return sendJson(response, 201, order);
   }
@@ -529,9 +560,14 @@ async function handleApi(request, response, url) {
     const identity = requireIdentity(request).identity;
     const body = assertObject(await readJson(request));
     const idempotencyKey = typeof body.idempotencyKey === 'string' ? body.idempotencyKey : null;
+    const provider = typeof body.provider === 'string' && body.provider.trim() ? body.provider.trim() : paymentProvider.name;
+    if (provider !== paymentProvider.name) {
+      throw new DomainError('暂不支持的支付方式。', 'invalid_payment_provider', 422);
+    }
     const recharge = await commerce.createRecharge(identity, {
       amountFen: Math.round((Number(body.amount) || 0) * 100),
       idempotencyKey: idempotencyKey || undefined,
+      provider,
     });
     return sendJson(response, 201, { recharge });
   }
@@ -630,7 +666,8 @@ function serveApplication(request, response, pathname) {
     pathname === '/wallet' ||
     pathname === '/wallet/' ||
     pathname.startsWith('/orders/') ||
-    pathname.startsWith('/products/')
+    pathname.startsWith('/products/') ||
+    pathname.startsWith('/wallet/')
   ) {
     return serveFile(response, buyerDirectory, 'index.html');
   }

@@ -47,8 +47,25 @@ export function createApi(rawInitData?: string) {
   };
 
   const authenticate = async (): Promise<Session> => {
-    if (!rawInitData) throw new ApiError('无法获取 Telegram 登录信息，请从机器人菜单重新打开小程序。', 401, 'telegram_init_data_missing');
     if (refreshPromise) return refreshPromise;
+    if (!rawInitData) {
+      refreshPromise = request<Session>('/api/auth/dev', {
+        method: 'POST',
+        body: JSON.stringify({ profile: { first_name: '模拟用户', username: 'dev_demo' } }),
+      }, false)
+        .then((session) => {
+          accessToken = session.accessToken;
+          return session;
+        })
+        .catch((error: unknown) => {
+          if (error instanceof ApiError && error.status === 404) {
+            throw new ApiError('无法获取 Telegram 登录信息，请从机器人菜单重新打开小程序。', 401, 'telegram_init_data_missing');
+          }
+          throw error;
+        })
+        .finally(() => { refreshPromise = null; });
+      return refreshPromise;
+    }
     refreshPromise = request<Session>('/api/auth/telegram', {
       method: 'POST',
       body: JSON.stringify({ initData: rawInitData }),
@@ -68,14 +85,14 @@ export function createApi(rawInitData?: string) {
     getCatalog: () => request<Product[]>('/api/catalog'),
     getOrders: () => request<Order[]>('/api/orders'),
     getOrder: (orderNo: string) => request<Order>(`/api/orders/${encodeURIComponent(orderNo)}`),
-    createOrder: (variantId: string, quantity: number, idempotencyKey: string) => request<Order>('/api/orders', {
+    createOrder: (variantId: string, quantity: number, idempotencyKey: string, paymentMethod: string) => request<Order>('/api/orders', {
       method: 'POST',
       headers: { 'Idempotency-Key': idempotencyKey },
-      body: JSON.stringify({ variantId, quantity }),
+      body: JSON.stringify({ variantId, quantity, paymentMethod }),
     }),
-    createRecharge: (amount: number, idempotencyKey: string) => request<{ recharge: Recharge }>('/api/me/recharge', {
+    createRecharge: (amount: number, idempotencyKey: string, provider: string) => request<{ recharge: Recharge }>('/api/me/recharge', {
       method: 'POST',
-      body: JSON.stringify({ amount, idempotencyKey }),
+      body: JSON.stringify({ amount, idempotencyKey, provider }),
     }),
     getRecharge: (rechargeNo: string) => request<Recharge>(`/api/me/recharge/${encodeURIComponent(rechargeNo)}`),
     getBalance: () => request<{ balanceFen: number; entries: Array<{ kind: string; changeFen: number; createdAt: string }> }>('/api/me/balance'),
