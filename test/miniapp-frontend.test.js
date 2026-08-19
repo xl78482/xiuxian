@@ -14,6 +14,7 @@ test('uses the official Telegram lifecycle and requests fullscreen on first gest
   assert.match(telegram, /useRawInitData|@telegram-mini-apps\/sdk-react/);
   assert.match(telegram, /miniAppReady/);
   assert.match(telegram, /expandViewport/);
+  assert.match(telegram, /isViewportExpanded/);
   assert.match(telegram, /disableVerticalSwipes/);
   assert.match(telegram, /hideBackButton/);
   assert.match(telegram, /showBackButton/);
@@ -24,6 +25,9 @@ test('uses the official Telegram lifecycle and requests fullscreen on first gest
   assert.ok(telegram.indexOf('callSafe(miniAppReady)') < telegram.indexOf('callSafe(expandViewport)'));
   assert.ok(telegram.indexOf('setTimeout') < telegram.indexOf('callSafe(expandViewport)'));
   assert.match(telegram, /viewport_changed/);
+  assert.match(telegram, /fullscreen_changed/);
+  assert.match(telegram, /EXPAND_RETRY_DELAYS/);
+  assert.match(telegram, /6000/);
 });
 
 test('keeps dev login strictly non-production (404 in production)', () => {

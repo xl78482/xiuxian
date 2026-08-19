@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   CircleAlert,
   ClipboardList,
+  Clock3,
   Copy,
   Headphones,
   Home,
@@ -77,6 +79,18 @@ function assetUrl(url?: string | null) {
 
 function statusLabel(status: string) {
   return STATUS_LABEL[status] ?? status;
+}
+
+const FULFILLMENT_LABEL: Record<string, string> = {
+  pending: '等待发卡',
+  processing: '发卡处理中',
+  fulfilled: '已发卡',
+  failed: '发卡失败',
+};
+
+function fulfillmentLabel(status?: string) {
+  if (!status) return null;
+  return FULFILLMENT_LABEL[status] ?? status;
 }
 
 function formatDate(value: string) {
@@ -531,10 +545,26 @@ function ErrorScreen({ message, onRetry }: { message: string; onRetry: () => voi
 }
 
 function Header({ tab }: { tab: 'shop' | 'orders' | 'profile' }) {
-  const content = tab === 'shop'
-    ? <div className="brand-lockup" key="shop"><span className="brand-mark">XX</span><div><h1>XiuXian</h1><p>数字商品商城</p></div></div>
-    : <div className="page-title" key={tab}><h1>{tab === 'orders' ? '我的订单' : '我的'}</h1>{tab === 'orders' && <p>支付与交付记录</p>}</div>;
-  return <header className="top-header"><div className="top-header-inner">{content}</div></header>;
+  const isShop = tab === 'shop';
+  const subtitle = isShop ? '数字商品商城' : tab === 'orders' ? '支付与交付记录' : '账户与余额';
+  return (
+    <header className="top-header">
+      <span className="top-header-glow" aria-hidden="true" />
+      <div className="top-header-inner">
+        {isShop ? (
+          <div className="brand-lockup" key="shop">
+            <span className="brand-mark">XX</span>
+            <div className="brand-copy"><h1>XiuXian</h1><p>{subtitle}</p></div>
+          </div>
+        ) : (
+          <div className="page-title" key={tab}>
+            <h1>{tab === 'orders' ? '我的订单' : '我的'}</h1>
+            <p>{subtitle}</p>
+          </div>
+        )}
+      </div>
+    </header>
+  );
 }
 
 function ShopView({ catalog, categories, category, onCategory, visibleProducts, selectedVariant, onProduct, onBuy, onReload }: { catalog: Product[]; categories: Category[]; category: string; onCategory: (id: string) => void; visibleProducts: Product[]; selectedVariant: (product: Product) => Variant | undefined; onProduct: (product: Product) => void; onBuy: (product: Product) => void; onReload: () => void }) {
@@ -575,11 +605,11 @@ function ProductCard({ product, variant, onOpen, onBuy }: { product: Product; va
 
 function OrdersView({ orders, loading, filter, onFilter, onOpen, onShop }: { orders: Order[] | null; loading: boolean; filter: string; onFilter: (key: string) => void; onOpen: (order: Order) => void; onShop: () => void }) {
   const filtered = orders?.filter((order) => { const group = ORDER_GROUPS.find((item) => item.key === filter); return !group?.statuses || group.statuses.includes(order.status); }) ?? [];
-  return <section className="page-section orders-section"><div className="order-filters">{ORDER_GROUPS.map((group) => <button key={group.key} className={filter === group.key ? 'is-active' : ''} onClick={() => onFilter(group.key)}><b>{group.label}</b><small>{orders ? (group.statuses ? orders.filter((order) => group.statuses?.includes(order.status)).length : orders.length) : '·'}</small></button>)}</div>{loading ? <div className="skeleton-stack">{[1, 2, 3].map((key) => <div className="skeleton-row" key={key}><span /><div><i /><i /><i /></div></div>)}</div> : filtered.length ? <div className="order-list">{filtered.map((order) => <button className="order-row" key={order.orderNo} onClick={() => onOpen(order)}><span className="order-icon"><ClipboardList size={20} /></span><span className="order-copy"><b>{order.productTitle}</b><small>{order.variantName} · {formatDate(order.createdAt)}</small><em>{order.orderNo}</em></span><span className="order-side"><b>{money(order.totalPriceFen)}</b><em className={STATUS_TONE[order.status] ?? 'status-muted'}>{statusLabel(order.status)}</em><ChevronRight size={16} /></span></button>)}</div> : <EmptyPanel icon={<PackageOpen size={58} />} title="还没有订单" text="选购数字商品后，订单会显示在这里" action="去逛逛" onAction={onShop} />}</section>;
+  return <section className="page-section orders-section"><div className="order-filters">{ORDER_GROUPS.map((group) => <button key={group.key} className={filter === group.key ? 'is-active' : ''} onClick={() => onFilter(group.key)}><b>{group.label}</b><small>{orders ? (group.statuses ? orders.filter((order) => group.statuses?.includes(order.status)).length : orders.length) : '·'}</small></button>)}</div>{loading ? <div className="skeleton-stack">{[1, 2, 3].map((key) => <div className="skeleton-row" key={key}><span /><div><i /><i /><i /></div></div>)}</div> : filtered.length ? <div className="order-list">{filtered.map((order) => <button className="order-row" key={order.orderNo} onClick={() => onOpen(order)}><span className="order-icon"><ClipboardList size={20} /></span><span className="order-copy"><b>{order.productTitle}</b><small>{order.variantName}{order.quantity > 1 ? ` × ${order.quantity}` : ''} · {formatDate(order.createdAt)}</small><em>{order.orderNo}</em></span><span className="order-side"><b>{money(order.totalPriceFen)}</b><em className={STATUS_TONE[order.status] ?? 'status-muted'}>{statusLabel(order.status)}</em><ChevronRight size={16} /></span></button>)}</div> : <EmptyPanel icon={<PackageOpen size={58} />} title="还没有订单" text="选购数字商品后，订单会显示在这里" action="去逛逛" onAction={onShop} />}</section>;
 }
 
 function ProfileView({ user, config, balance, onOrders, onRecharge, onBalanceDetail, onSupport }: { user: User; config: PublicConfig; balance: number; onOrders: () => void; onRecharge: () => void; onBalanceDetail: () => void; onSupport: () => void }) {
-  return <section className="page-section profile-section"><div className="profile-card"><div className="profile-top"><div className={`avatar ${user.photoUrl ? 'has-image' : ''}`}>{user.photoUrl ? <img src={user.photoUrl} alt="Telegram 头像" /> : <UserRound size={30} />}</div><div className="profile-copy"><h2>{displayName(user)}</h2>{user.username && <p>@{user.username}</p>}<small>Telegram ID：{user.telegramId}</small></div><span className="connected"><i />已连接</span></div><div className="balance-row"><span>账户余额</span><strong>{money(balance)}</strong><button onClick={onRecharge}><WalletCards size={16} />充值</button></div></div><div className="menu-card"><button onClick={onOrders}><span><ClipboardList size={19} />我的订单</span><ChevronRight size={16} /></button><button onClick={onBalanceDetail}><span><WalletCards size={19} />余额明细</span><ChevronRight size={16} /></button>{config.supportUrl && <button onClick={onSupport}><span><Headphones size={19} />联系售后</span><ChevronRight size={16} /></button>}<div><span><ShieldCheck size={19} />当前版本</span><small>v{config.version}</small></div></div></section>;
+  return <section className="page-section profile-section"><div className="profile-card"><div className="profile-top"><div className={`avatar ${user.photoUrl ? 'has-image' : ''}`}>{user.photoUrl ? <img src={user.photoUrl} alt="Telegram 头像" /> : <UserRound size={30} />}</div><div className="profile-copy"><h2>{displayName(user)}</h2>{user.username && <p>@{user.username}</p>}<small>Telegram ID：{user.telegramId}</small></div><span className="connected"><i />已连接</span></div></div><button className="balance-row" onClick={onRecharge}><span>账户余额</span><strong>{money(balance)}</strong><em><WalletCards size={15} />充值</em></button><div className="menu-card"><button onClick={onOrders}><span><ClipboardList size={19} />我的订单</span><ChevronRight size={16} /></button><button onClick={onBalanceDetail}><span><WalletCards size={19} />余额明细</span><ChevronRight size={16} /></button>{config.supportUrl && <button onClick={onSupport}><span><Headphones size={19} />联系售后</span><ChevronRight size={16} /></button>}<div><span><ShieldCheck size={19} />当前版本</span><small>v{config.version}</small></div></div></section>;
 }
 
 function BottomNav({ tab, onTab }: { tab: 'shop' | 'orders' | 'profile'; onTab: (tab: 'shop' | 'orders' | 'profile') => void }) {
@@ -661,6 +691,68 @@ function PageView({ title, subtitle, onBack, children, footer }: { title: string
   );
 }
 
+function useCountdown(deadline?: string | null) {
+  const [remaining, setRemaining] = useState(0);
+  useEffect(() => {
+    if (!deadline) return undefined;
+    const target = new Date(deadline).getTime();
+    if (Number.isNaN(target)) return undefined;
+    const update = () => setRemaining(Math.max(0, target - Date.now()));
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [deadline]);
+  return remaining;
+}
+
+function formatCountdown(ms: number) {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+type StepState = 'done' | 'active' | 'failed' | 'pending';
+
+function orderStepStates(status: string): StepState[] {
+  switch (status) {
+    case 'pending_payment':
+    case 'payment_confirming':
+      return ['done', 'active', 'pending'];
+    case 'paid':
+    case 'fulfilling':
+      return ['done', 'done', 'active'];
+    case 'completed':
+      return ['done', 'done', 'done'];
+    case 'fulfillment_failed':
+      return ['done', 'done', 'failed'];
+    case 'payment_expired':
+    case 'canceled':
+    case 'refunded':
+      return ['done', 'failed', 'pending'];
+    default:
+      return ['done', 'pending', 'pending'];
+  }
+}
+
+function OrderSteps({ status }: { status: string }) {
+  const labels = ['提交订单', '确认支付', '自动发卡'];
+  const states = orderStepStates(status);
+  return (
+    <ol className="order-steps" aria-label="订单进度">
+      {labels.map((label, index) => {
+        const step = states[index] ?? 'pending';
+        return (
+          <li key={label} className={`order-step is-${step}`}>
+            <span className="order-step-node" aria-hidden="true">{step === 'done' ? '✓' : index + 1}</span>
+            <span className="order-step-label">{label}</span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 function ProductPage({ product, variant, quantity, balanceFen, methods, paymentMethod, busy, onBack, onVariant, onQuantity, onPaymentMethod, onBuy }: { product: Product; variant?: Variant; quantity: number; balanceFen: number; methods: PaymentMethod[]; paymentMethod: string; busy: boolean; onBack: () => void; onVariant: (variant: Variant) => void; onQuantity: (quantity: number) => void; onPaymentMethod: (id: string) => void; onBuy: () => void }) {
   const availableVariant = variant ?? product.variants.find((item) => item.stock > 0);
   const max = availableVariant ? Math.min(availableVariant.maxPerOrder, availableVariant.stock) : 0;
@@ -669,39 +761,59 @@ function ProductPage({ product, variant, quantity, balanceFen, methods, paymentM
   const externalMethods = methods.filter((method) => method.enabled);
   const selectedReady = paymentMethod === 'balance' ? balanceReady : externalMethods.some((method) => method.id === paymentMethod && method.ready);
   const canBuy = !busy && !!availableVariant && availableVariant.stock >= 1 && quantity >= 1 && selectedReady;
+  const buyLabel = busy ? '正在创建…' : paymentMethod === 'balance' && !balanceReady ? '余额不足' : '立即购买';
   return (
     <PageView title={product.title} subtitle={product.category?.name ?? '数字商品'} onBack={onBack}
-      footer={<div className="buy-bar"><div className="buy-bar-total"><span>合计</span><strong>{money(total)}</strong></div><button className="primary-button buy-bar-button" disabled={!canBuy} onClick={onBuy}>{busy ? <LoaderCircle className="animate-spin" size={17} /> : <ShoppingBag size={17} />}{busy ? '正在创建…' : '购买'}</button></div>}>
-      <div className="page-hero"><img src={assetUrl(product.imageUrl)} alt={product.title} /><span className="page-hero-tag">{product.category?.name ?? '数字商品'}</span></div>
-      <div className="page-section-block">
-        <span className="eyebrow">即时交付 · 安全库存</span>
-        <h2>{product.title}</h2>
-        <p className="page-desc">{product.description || '付款确认后，系统自动交付数字商品。'}</p>
+      footer={<div className="buy-bar"><div className="buy-bar-total"><span>合计{availableVariant ? ` · ${availableVariant.name}${quantity > 1 ? ` × ${quantity}` : ''}` : ''}</span><strong>{money(total)}</strong></div><button className="primary-button buy-bar-button" disabled={!canBuy} onClick={onBuy}>{busy ? <LoaderCircle className="animate-spin" size={17} /> : <ShoppingBag size={17} />}{buyLabel}</button></div>}>
+      <div className="page-hero">
+        <img src={assetUrl(product.imageUrl)} alt={product.title} />
+        <span className="page-hero-tag">{product.category?.name ?? '数字商品'}</span>
+        <div className="page-hero-caption">
+          <span className="eyebrow">即时交付 · 安全库存</span>
+          <h2>{product.title}</h2>
+          <p>{product.description || '付款确认后，系统自动交付数字商品。'}</p>
+        </div>
       </div>
       <div className="page-section-block">
         <h3 className="block-title">选择规格</h3>
-        <div className="variant-list">{product.variants.map((item) => <button key={item.id} className={item.id === availableVariant?.id ? 'is-active' : ''} disabled={item.stock < 1} onClick={() => onVariant(item)}><span><b>{item.name}</b><small>{item.stock > 0 ? `${item.stock} 份可售` : '暂时售罄'}</small></span><strong>{money(item.priceFen)}</strong></button>)}</div>
+        <div className="variant-list">
+          {product.variants.map((item) => {
+            const active = item.id === availableVariant?.id;
+            const low = item.stock > 0 && item.stock < 5;
+            return (
+              <button key={item.id} className={active ? 'is-active' : ''} disabled={item.stock < 1} onClick={() => onVariant(item)}>
+                <span className="variant-name"><b>{item.name}</b><small className={low ? 'is-low' : ''}>{item.stock < 1 ? '暂时售罄' : low ? `仅剩 ${item.stock} 份` : `${item.stock} 份可售`}</small></span>
+                <span className="variant-price"><strong>{money(item.priceFen)}</strong>{typeof item.sold === 'number' ? <small>已售 {item.sold}</small> : null}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
       <div className="page-section-block">
         <h3 className="block-title">购买数量</h3>
-        <div className="quantity"><button onClick={() => onQuantity(Math.max(1, quantity - 1))}><Minus size={15} /></button><b>{quantity}</b><button onClick={() => onQuantity(Math.min(max || 1, quantity + 1))}><Plus size={15} /></button></div>
+        <div className="quantity-row">
+          <div className="quantity"><button onClick={() => onQuantity(Math.max(1, quantity - 1))} aria-label="减少数量"><Minus size={15} /></button><b>{quantity}</b><button onClick={() => onQuantity(Math.min(max || 1, quantity + 1))} aria-label="增加数量"><Plus size={15} /></button></div>
+          <span className="quantity-summary">{availableVariant ? `${money(availableVariant.priceFen)} × ${quantity} = ${money(total)}` : '—'}</span>
+        </div>
         <span className="sheet-note">该规格单次最多购买 {max || 0} 件</span>
       </div>
       <div className="page-section-block">
         <h3 className="block-title">支付方式</h3>
         <div className="pay-methods">
           <button type="button" className={`pay-method${paymentMethod === 'balance' ? ' is-active' : ''}`} disabled={!balanceReady} onClick={() => onPaymentMethod('balance')}>
-            <span className="pay-method-radio" aria-hidden="true" />
+            <span className="pay-method-icon is-balance" aria-hidden="true"><WalletCards size={17} /></span>
             <span className="pay-method-copy"><b>余额支付</b><small>当前余额 {money(balanceFen)}</small></span>
             <em className={`pay-method-badge${balanceReady ? '' : ' is-unready'}`}>{balanceReady ? '可用' : '余额不足'}</em>
           </button>
           {externalMethods.map((method) => {
             const active = method.id === paymentMethod;
-            return <button key={method.id} type="button" className={`pay-method${active ? ' is-active' : ''}`} disabled={!method.ready} onClick={() => onPaymentMethod(method.id)}>
-              <span className="pay-method-radio" aria-hidden="true" />
-              <span className="pay-method-copy"><b>{method.name}</b><small>{method.description ?? method.label ?? method.id}</small></span>
-              <em className={`pay-method-badge${method.ready ? '' : ' is-unready'}`}>{method.ready ? '可用' : '未配置'}</em>
-            </button>;
+            return (
+              <button key={method.id} type="button" className={`pay-method${active ? ' is-active' : ''}`} disabled={!method.ready} onClick={() => onPaymentMethod(method.id)}>
+                <span className="pay-method-icon is-crypto" aria-hidden="true"><span className="crypto-glyph">₮</span></span>
+                <span className="pay-method-copy"><b>{method.name}</b><small>{method.description ?? method.label ?? method.id}</small></span>
+                <em className={`pay-method-badge${method.ready ? '' : ' is-unready'}`}>{method.ready ? '可用' : '未配置'}</em>
+              </button>
+            );
           })}
         </div>
       </div>
@@ -762,15 +874,45 @@ function RechargePage({ recharge, amount, balanceFen, methods, paymentMethod, bu
 }
 
 function OrderPage({ order, orderNo, onBack, onCopy, onRefresh }: { order: Order | null; orderNo: string; onBack: () => void; onCopy: (value: string) => void; onRefresh: () => void }) {
+  const isAwaitingPayment = ['pending_payment', 'payment_confirming'].includes(order?.status ?? '');
+  const remaining = useCountdown(isAwaitingPayment ? order?.payment?.expiresAt : null);
+  const expired = isAwaitingPayment && remaining === 0;
+  const issuing = ['paid', 'fulfilling'].includes(order?.status ?? '');
+  const allCardsText = order?.cards?.map((card) => `${card.code}${card.password ? `\n密码：${card.password}` : ''}`).join('\n\n') ?? '';
   return (
     <PageView title={order?.productTitle ?? '订单详情'} subtitle={order ? `${order.orderNo}` : orderNo} onBack={onBack}
       footer={<button className="outline-button wide" onClick={onRefresh}><RefreshCw size={15} />刷新订单状态</button>}>
       {!order ? <div className="loading-panel"><LoaderCircle className="animate-spin text-accent" size={26} /><p>正在加载订单…</p></div>
         : <>
-          <div className="order-detail-hero">
-            <span className={`order-state ${STATUS_TONE[order.status] ?? 'status-muted'}`}>{statusLabel(order.status)}</span>
-            {order.fulfillmentStatus && order.fulfillmentStatus !== order.status && <span className="order-state status-info">{statusLabel(order.fulfillmentStatus)}</span>}
+          <OrderSteps status={order.status} />
+
+          <div className="order-status-hero">
+            <span className={`order-status-icon ${STATUS_TONE[order.status] ?? 'status-muted'}`} aria-hidden="true">
+              {order.status === 'completed' || order.status === 'paid' || order.status === 'fulfilling' ? <CheckCircle2 size={22} />
+                : order.status === 'pending_payment' || order.status === 'payment_confirming' ? <Clock3 size={22} />
+                : <CircleAlert size={22} />}
+            </span>
+            <div className="order-status-copy">
+              <h3>{statusLabel(order.status)}</h3>
+              {expired ? <p>支付已超时，请返回订单列表重新创建订单。</p>
+                : order.status === 'pending_payment' ? <p>请尽快完成支付，剩余 <b className="countdown">{formatCountdown(remaining)}</b>。</p>
+                : order.status === 'payment_confirming' ? <p>支付已提交，正在等待链上确认。</p>
+                : issuing ? <p>付款已确认，系统正在自动发卡，请稍候…</p>
+                : order.status === 'completed' ? <p>卡密已发放，请妥善保存。</p>
+                : order.status === 'fulfillment_failed' ? <p>发卡遇到问题，请联系售后处理。</p>
+                : order.status === 'refunded' ? <p>订单已退款，金额已退回账户余额。</p>
+                : order.status === 'payment_expired' ? <p>订单已过期，未完成支付。</p>
+                : order.status === 'canceled' ? <p>订单已关闭。</p>
+                : <p>{formatDateTime(order.createdAt)}</p>}
+            </div>
           </div>
+
+          {order.payment?.paymentInstructions && isAwaitingPayment && (
+            <div className="page-section-block payment-highlight">
+              <h3 className="block-title">扫码支付</h3>
+              <PaymentBlock payment={order.payment} onCopy={onCopy} />
+            </div>
+          )}
 
           <div className="page-section-block">
             <h3 className="block-title">商品信息</h3>
@@ -778,8 +920,27 @@ function OrderPage({ order, orderNo, onBack, onCopy, onRefresh }: { order: Order
             <div className="order-detail-row"><span>规格</span><b>{order.variantName}</b></div>
             <div className="order-detail-row"><span>数量</span><b>× {order.quantity}</b></div>
             <div className="order-detail-row"><span>单价</span><b>{money(Math.round(order.totalPriceFen / Math.max(order.quantity, 1)))}</b></div>
-            <div className="order-detail-row order-detail-total"><span>订单金额</span><b>{money(order.totalPriceFen)}{order.currency && order.currency !== 'CNY' ? ` ${order.currency}` : ''}</b></div>
+            <div className="order-amount-hero">
+              <span>实付金额</span>
+              <b>{money(order.totalPriceFen)}</b>
+              {order.currency && order.currency !== 'CNY' && <small>{order.currency}</small>}
+            </div>
           </div>
+
+          {order.cards?.length ? (
+            <div className="page-section-block">
+              <div className="block-title-row"><h3 className="block-title">卡密信息{order.cards.length > 1 ? `（${order.cards.length} 张）` : ''}</h3><button className="copy-all-button" onClick={() => onCopy(allCardsText)}><Copy size={13} />全部复制</button></div>
+              <div className="card-codes">{order.cards.map((card) => <div key={card.code}><code>{card.code}{card.password ? <span className="card-password">密码：{card.password}</span> : null}</code><button onClick={() => onCopy(`${card.code}${card.password ? `\n密码：${card.password}` : ''}`)}><Copy size={15} /></button></div>)}</div>
+            </div>
+          ) : issuing ? (
+            <div className="page-section-block card-issuing-hint"><LoaderCircle className="animate-spin" size={18} /><p>正在准备卡密，通常几秒内完成…</p></div>
+          ) : isAwaitingPayment ? (
+            <div className="page-section-block"><h3 className="block-title">卡密信息</h3><p className="sheet-note">支付确认后，卡密会显示在这里。</p></div>
+          ) : null}
+
+          {order.failureReason && (
+            <div className="page-section-block order-detail-failure"><h3 className="block-title">异常说明</h3><p>{order.failureReason}</p></div>
+          )}
 
           {order.payment && (
             <div className="page-section-block">
@@ -788,31 +949,24 @@ function OrderPage({ order, orderNo, onBack, onCopy, onRefresh }: { order: Order
               {order.payment.chain && <div className="order-detail-row"><span>支付网络</span><b>{order.payment.chain.toUpperCase()}</b></div>}
               {order.payment.tokenId && <div className="order-detail-row"><span>支付代币</span><b>{order.payment.tokenId.toUpperCase()}</b></div>}
               {order.payment.payableAmount && <div className="order-detail-row"><span>应付金额</span><b>{order.payment.payableAmount}</b></div>}
-              {order.payment.expiresAt && ['pending_payment', 'payment_confirming'].includes(order.status) && <div className="order-detail-row"><span>支付截止</span><b>{formatDateTime(order.payment.expiresAt)}</b></div>}
-              {order.paidAt && <div className="order-detail-row"><span>支付时间</span><b>{formatDateTime(order.paidAt)}</b></div>}
+              {order.payment.payAddress && (
+                <div className="order-detail-row">
+                  <span>收款地址</span>
+                  <b className="order-detail-addr">{order.payment.payAddress}</b>
+                  <button className="icon-button" onClick={() => onCopy(order.payment?.payAddress ?? '')} aria-label="复制收款地址"><Copy size={13} /></button>
+                </div>
+              )}
+              {order.payment.expiresAt && isAwaitingPayment && <div className="order-detail-row"><span>支付截止</span><b>{formatDateTime(order.payment.expiresAt)}</b></div>}
               {order.payment.checkoutUrl && <div className="order-detail-row"><span>收银台</span><b className="order-detail-link">{order.payment.checkoutUrl}</b></div>}
             </div>
-          )}
-
-          {order.cards?.length ? (
-            <div className="page-section-block">
-              <h3 className="block-title">卡密信息</h3>
-              <div className="card-codes">{order.cards.map((card) => <div key={card.code}><code>{card.code}{card.password ? <span className="card-password">密码：{card.password}</span> : null}</code><button onClick={() => onCopy(`${card.code}${card.password ? `\n密码：${card.password}` : ''}`)}><Copy size={15} /></button></div>)}</div>
-            </div>
-          ) : ['pending_payment', 'payment_confirming'].includes(order.status) ? (
-            <div className="page-section-block"><h3 className="block-title">卡密信息</h3><p className="sheet-note">支付确认后，卡密会显示在这里。</p></div>
-          ) : null}
-
-          {order.payment?.paymentInstructions && ['pending_payment', 'payment_confirming'].includes(order.status) && <PaymentBlock payment={order.payment} onCopy={onCopy} />}
-
-          {order.failureReason && (
-            <div className="page-section-block order-detail-failure"><h3 className="block-title">异常说明</h3><p>{order.failureReason}</p></div>
           )}
 
           <div className="page-section-block">
             <h3 className="block-title">订单信息</h3>
             <div className="order-detail-row"><span>订单编号</span><b className="order-detail-no">{order.orderNo}</b><button className="icon-button" onClick={() => onCopy(order.orderNo)} aria-label="复制订单号"><Copy size={14} /></button></div>
             <div className="order-detail-row"><span>下单时间</span><b>{formatDateTime(order.createdAt)}</b></div>
+            {order.paidAt && <div className="order-detail-row"><span>支付时间</span><b>{formatDateTime(order.paidAt)}</b></div>}
+            <div className="order-detail-row"><span>发货状态</span><b>{fulfillmentLabel(order.fulfillmentStatus) ?? '—'}</b></div>
           </div>
         </>}
     </PageView>
@@ -822,7 +976,19 @@ function OrderPage({ order, orderNo, onBack, onCopy, onRefresh }: { order: Order
 function PaymentBlock({ payment, onCopy }: { payment?: Order['payment']; onCopy: (value: string) => void }) {
   const instructions = payment?.paymentInstructions;
   if (!instructions?.qrContent) return null;
-  return <div className="payment-block"><PaymentQr value={instructions.qrContent} /><strong>{payment?.payableAmount ?? ''} {instructions.amountUnit ?? instructions.label ?? ''}</strong>{instructions.address && <button className="address-copy" onClick={() => onCopy(instructions.address ?? '')}><span>{instructions.address}</span><Copy size={14} /></button>}</div>;
+  const network = instructions.network ?? payment?.chain;
+  const token = instructions.amountUnit ?? instructions.label ?? payment?.tokenId;
+  return (
+    <div className="payment-block">
+      <PaymentQr value={instructions.qrContent} />
+      <div className="payment-amount"><span>应付金额</span><strong>{payment?.payableAmount ?? ''} <em>{token ?? ''}</em></strong></div>
+      {network && <div className="payment-meta"><span>支付网络</span><b>{String(network).toUpperCase()}</b></div>}
+      {instructions.address && (
+        <button className="address-copy" onClick={() => onCopy(instructions.address ?? '')}><span className="address-text">{instructions.address}</span><Copy size={14} /></button>
+      )}
+      <p className="sheet-note">转账后系统自动确认到账并发放卡密，无需手动操作。</p>
+    </div>
+  );
 }
 
 function PaymentQr({ value }: { value: string }) {

@@ -2,7 +2,7 @@
 
 Telegram Mini App 自动发卡平台。后端使用 Node.js 22 + SQLite，买家端使用 React + TypeScript + TailwindCSS，运行时支付统一使用 DujiaoPay，买家登录统一使用 Telegram `initData`。
 
-当前版本：`1.0.40`
+当前版本：`1.0.41`
 
 开发约定：远程仓库只保留 `main` 分支，所有后续代码、文档和配置更新直接提交并推送到 `main`。
 
@@ -36,7 +36,7 @@ SESSION_SECRET=$(node -e "console.log(require('node:crypto').randomBytes(32).toS
 CARD_ENCRYPTION_KEY=$(node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))")
 ```
 
-必须填写 `TELEGRAM_BOT_TOKEN`。DujiaoPay 的三项密钥可以在 `.env` 中同时填写，也可以先留空并在后台“支付渠道”页加密配置；未完整配置时买家端会禁止创建新订单。浏览器直接打开买家地址不会创建开发账号，必须从 Telegram Bot 的 Mini App 按钮进入。买家端使用 `@telegram-mini-apps/sdk-react` 兼容别名（对应官方 npm 包 `@telegram-apps/sdk-react`），初始化顺序为 `ready()`、`expand()`、`disableVerticalSwipes()` 和隐藏原生 `BackButton`；不调用 `requestFullscreen()`。布局使用 Telegram viewport CSS 变量和 `env(safe-area-inset-*)`，不使用 `100vh`。
+必须填写 `TELEGRAM_BOT_TOKEN`。DujiaoPay 的三项密钥可以在 `.env` 中同时填写，也可以先留空并在后台“支付渠道”页加密配置；未完整配置时买家端会禁止创建新订单。浏览器直接打开买家地址不会创建开发账号，必须从 Telegram Bot 的 Mini App 按钮进入。买家端使用 `@telegram-mini-apps/sdk-react` 兼容别名（对应官方 npm 包 `@telegram-apps/sdk-react`），初始化顺序为 `ready()`、自动 `expand()`（立即 + 300/800/1500/3000/6000ms 多时间点重试，`isExpanded` 已展开即停止，并监听 `viewport_changed`/`fullscreen_changed` 在视口变化或退出全屏时再次展开，避免停留在 Bottom Sheet 半屏）、`disableVerticalSwipes()` 和隐藏原生 `BackButton`。全屏（`requestFullscreen`）由首次用户手势触发——Telegram 官方限制必须由手势触发，无法“打开即零交互全屏”；若需每次打开自动进入全屏，可在 Telegram 客户端内为该小程序开启“全屏模式”偏好（前提：BotFather 已为该小程序启用 Fullscreen 能力，客户端为 2024-12 之后的新版本）。布局使用 Telegram viewport CSS 变量和 `env(safe-area-inset-*)`，不使用 `100vh`。
 
 也可以直接执行：
 
