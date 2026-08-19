@@ -21,6 +21,7 @@ import QRCode from 'qrcode';
 import { useRawInitData, useSignal } from '@telegram-mini-apps/sdk-react';
 import { viewport } from '@telegram-mini-apps/sdk-react';
 import { createApi, ApiError } from './api';
+import { bindTelegramBackButton, setTelegramBackButton } from './telegram';
 import type { Category, Order, PaymentMethod, Product, PublicConfig, Recharge, User, Variant } from './types';
 
 type OrderGroup = { key: string; label: string; statuses: readonly string[] | null };
@@ -141,7 +142,6 @@ function App() {
   const [orderQuantity, setOrderQuantity] = useState(1);
   const [toast, setToast] = useState('');
   const [busy, setBusy] = useState(false);
-  const isMockUser = user?.telegramId === '777777001';
 
   const activeTab: 'shop' | 'orders' | 'profile' = page.name === 'shop' || page.name === 'orders' || page.name === 'profile'
     ? page.name
@@ -208,6 +208,15 @@ function App() {
     navigate({ name: activeTab });
   }, [activeTab, navigate]);
 
+  // Telegram 原生 BackButton：首页（shop/orders/profile）隐藏，二级页（product/order/recharge/balance）显示，点击返回。
+  useEffect(() => {
+    const isTopLevel = page.name === 'shop' || page.name === 'orders' || page.name === 'profile';
+    setTelegramBackButton(!isTopLevel);
+    if (isTopLevel) return undefined;
+    const off = bindTelegramBackButton(goBack);
+    return () => { off(); setTelegramBackButton(false); };
+  }, [page.name, goBack]);
+
   const loadOrders = useCallback(async () => {
     setOrdersLoading(true);
     try {
@@ -223,9 +232,24 @@ function App() {
     navigate({ name: 'order', orderNo: summary.orderNo, order: summary });
   }, [navigate]);
 
+  const prevPageName = useRef<string | null>(null);
   useEffect(() => {
-    if (page.name === 'orders' && orders === null && !ordersLoading) void loadOrders();
-  }, [page.name, loadOrders, orders, ordersLoading]);
+    if (page.name !== 'orders') {
+      prevPageName.current = page.name;
+      return;
+    }
+    if (prevPageName.current !== 'orders') {
+      setOrders(null);
+      void loadOrders();
+    }
+    prevPageName.current = page.name;
+  }, [page.name, loadOrders]);
+
+  const changeOrderFilter = useCallback((key: string) => {
+    setOrdersFilter(key);
+    setOrders(null);
+    void loadOrders();
+  }, [loadOrders]);
 
   const loadBalance = useCallback(async () => {
     try {
@@ -439,7 +463,7 @@ function App() {
 
   return (
     <div className="app-shell" data-expanded={expanded ? 'true' : 'false'}>
-      <Header tab={activeTab} onRefresh={() => { setOrders(null); void loadOrders(); }} mock={isMockUser} />
+      <Header tab={activeTab} />
       <main className="content-shell">
         <div key={activeTab} className="tab-transition">
           {page.name === 'shop' && (
@@ -460,7 +484,7 @@ function App() {
               orders={orders}
               loading={ordersLoading}
               filter={ordersFilter}
-              onFilter={setOrdersFilter}
+              onFilter={changeOrderFilter}
               onOpen={openOrder}
               onShop={() => navigate({ name: 'shop' })}
             />
@@ -470,7 +494,6 @@ function App() {
               user={user}
               config={config}
               balance={balance}
-              mock={isMockUser}
               onOrders={() => navigate({ name: 'orders' })}
               onRecharge={() => navigate({ name: 'recharge', recharge: { rechargeNo: '', amountFen: 0, status: 'new' } })}
               onBalanceDetail={() => navigate({ name: 'balance' })}
@@ -479,7 +502,7 @@ function App() {
           )}
         </div>
       </main>
-      <BottomNav tab={activeTab} orderCount={orders?.length ?? 0} onTab={(tab) => navigate({ name: tab })} />
+      <BottomNav tab={activeTab} onTab={(tab) => navigate({ name: tab })} />
       {toast && <div className="toast-message" role="status">{toast}</div>}
     </div>
   );
@@ -493,11 +516,11 @@ function ErrorScreen({ message, onRetry }: { message: string; onRetry: () => voi
   return <div className="center-screen"><CircleAlert className="text-rose-400" size={42} /><h1>暂时无法进入商店</h1><p>{message}</p><button className="primary-button" onClick={onRetry}>重新连接</button></div>;
 }
 
-function Header({ tab, onRefresh, mock }: { tab: 'shop' | 'orders' | 'profile'; onRefresh: () => void; mock?: boolean }) {
+function Header({ tab }: { tab: 'shop' | 'orders' | 'profile' }) {
   const content = tab === 'shop'
-    ? <div className="brand-lockup" key="shop"><span className="brand-mark">XX</span><div><h1>XiuXian{mock && <em className="dev-tag">模拟</em>}</h1><p>数字商品商城</p></div></div>
-    : <div className="page-title" key={tab}><h1>{tab === 'orders' ? '我的订单' : '我的'}{mock && <em className="dev-tag">模拟</em>}</h1>{tab === 'orders' && <p>支付与交付记录</p>}</div>;
-  return <header className="top-header"><div className="top-header-inner">{content}{tab === 'orders' && <button className="icon-button compact-icon" onClick={onRefresh} aria-label="刷新订单"><RefreshCw size={16} /></button>}</div></header>;
+    ? <div className="brand-lockup" key="shop"><span className="brand-mark">XX</span><div><h1>XiuXian</h1><p>数字商品商城</p></div></div>
+    : <div className="page-title" key={tab}><h1>{tab === 'orders' ? '我的订单' : '我的'}</h1>{tab === 'orders' && <p>支付与交付记录</p>}</div>;
+  return <header className="top-header"><div className="top-header-inner">{content}</div></header>;
 }
 
 function ShopView({ catalog, categories, category, onCategory, visibleProducts, selectedVariant, onProduct, onBuy, onReload }: { catalog: Product[]; categories: Category[]; category: string; onCategory: (id: string) => void; visibleProducts: Product[]; selectedVariant: (product: Product) => Variant | undefined; onProduct: (product: Product) => void; onBuy: (product: Product) => void; onReload: () => void }) {
@@ -541,11 +564,11 @@ function OrdersView({ orders, loading, filter, onFilter, onOpen, onShop }: { ord
   return <section className="page-section orders-section"><div className="order-filters">{ORDER_GROUPS.map((group) => <button key={group.key} className={filter === group.key ? 'is-active' : ''} onClick={() => onFilter(group.key)}><b>{group.label}</b><small>{orders ? (group.statuses ? orders.filter((order) => group.statuses?.includes(order.status)).length : orders.length) : '·'}</small></button>)}</div>{loading ? <div className="skeleton-stack">{[1, 2, 3].map((key) => <div className="skeleton-row" key={key}><span /><div><i /><i /><i /></div></div>)}</div> : filtered.length ? <div className="order-list">{filtered.map((order) => <button className="order-row" key={order.orderNo} onClick={() => onOpen(order)}><span className="order-icon"><ClipboardList size={20} /></span><span className="order-copy"><b>{order.productTitle}</b><small>{order.variantName} · {formatDate(order.createdAt)}</small><em>{order.orderNo}</em></span><span className="order-side"><b>{money(order.totalPriceFen)}</b><em className={STATUS_TONE[order.status] ?? 'status-muted'}>{statusLabel(order.status)}</em><ChevronRight size={16} /></span></button>)}</div> : <EmptyPanel icon={<PackageOpen size={58} />} title="还没有订单" text="选购数字商品后，订单会显示在这里" action="去逛逛" onAction={onShop} />}</section>;
 }
 
-function ProfileView({ user, config, balance, mock, onOrders, onRecharge, onBalanceDetail, onSupport }: { user: User; config: PublicConfig; balance: number; mock: boolean; onOrders: () => void; onRecharge: () => void; onBalanceDetail: () => void; onSupport: () => void }) {
-  return <section className="page-section profile-section">{mock && <div className="dev-notice"><span>开发模式 · 模拟账号</span><small>仅本地开发可用，生产环境不会创建模拟用户</small></div>}<div className="profile-card"><div className="profile-top"><div className={`avatar ${user.photoUrl ? 'has-image' : ''}`}>{user.photoUrl ? <img src={user.photoUrl} alt="Telegram 头像" /> : <UserRound size={30} />}</div><div className="profile-copy"><h2>{displayName(user)}</h2>{user.username && <p>@{user.username}</p>}<small>Telegram ID：{user.telegramId}</small></div><span className="connected"><i />已连接</span></div><div className="balance-row"><span>账户余额</span><strong>{money(balance)}</strong><button onClick={onRecharge}><WalletCards size={16} />充值</button></div></div><div className="menu-card"><button onClick={onOrders}><span><ClipboardList size={19} />我的订单</span><ChevronRight size={16} /></button><button onClick={onBalanceDetail}><span><WalletCards size={19} />余额明细</span><ChevronRight size={16} /></button>{config.supportUrl && <button onClick={onSupport}><span><Headphones size={19} />联系售后</span><ChevronRight size={16} /></button>}<div><span><ShieldCheck size={19} />当前版本</span><small>v{config.version}</small></div></div></section>;
+function ProfileView({ user, config, balance, onOrders, onRecharge, onBalanceDetail, onSupport }: { user: User; config: PublicConfig; balance: number; onOrders: () => void; onRecharge: () => void; onBalanceDetail: () => void; onSupport: () => void }) {
+  return <section className="page-section profile-section"><div className="profile-card"><div className="profile-top"><div className={`avatar ${user.photoUrl ? 'has-image' : ''}`}>{user.photoUrl ? <img src={user.photoUrl} alt="Telegram 头像" /> : <UserRound size={30} />}</div><div className="profile-copy"><h2>{displayName(user)}</h2>{user.username && <p>@{user.username}</p>}<small>Telegram ID：{user.telegramId}</small></div><span className="connected"><i />已连接</span></div><div className="balance-row"><span>账户余额</span><strong>{money(balance)}</strong><button onClick={onRecharge}><WalletCards size={16} />充值</button></div></div><div className="menu-card"><button onClick={onOrders}><span><ClipboardList size={19} />我的订单</span><ChevronRight size={16} /></button><button onClick={onBalanceDetail}><span><WalletCards size={19} />余额明细</span><ChevronRight size={16} /></button>{config.supportUrl && <button onClick={onSupport}><span><Headphones size={19} />联系售后</span><ChevronRight size={16} /></button>}<div><span><ShieldCheck size={19} />当前版本</span><small>v{config.version}</small></div></div></section>;
 }
 
-function BottomNav({ tab, orderCount, onTab }: { tab: 'shop' | 'orders' | 'profile'; orderCount: number; onTab: (tab: 'shop' | 'orders' | 'profile') => void }) {
+function BottomNav({ tab, onTab }: { tab: 'shop' | 'orders' | 'profile'; onTab: (tab: 'shop' | 'orders' | 'profile') => void }) {
   const items = useMemo(() => [
     { key: 'shop' as const, label: '商城', icon: Home },
     { key: 'orders' as const, label: '订单', icon: ClipboardList },
@@ -597,7 +620,6 @@ function BottomNav({ tab, orderCount, onTab }: { tab: 'shop' | 'orders' | 'profi
           >
             <span className="nav-icon-wrap">
               <Icon size={22} strokeWidth={active ? 2.5 : 1.8} className="nav-icon" />
-              {key === 'orders' && orderCount > 0 && <b className="nav-badge">{orderCount > 99 ? '99+' : orderCount}</b>}
             </span>
             <span className="nav-label">{label}</span>
           </button>

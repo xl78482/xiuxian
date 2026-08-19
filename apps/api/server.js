@@ -339,23 +339,6 @@ async function handleApi(request, response, url) {
     return sendJson(response, 200, issueBuyerSession(user));
   }
 
-  if (method === 'POST' && pathname === '/api/auth/dev') {
-    if (config.isProduction) throw new DomainError('未找到接口。', 'not_found', 404);
-    if (!checkRateLimit(request, response, 20)) return;
-    const body = assertObject(await readJson(request));
-    const profile = body.profile && typeof body.profile === 'object' && !Array.isArray(body.profile) ? body.profile : {};
-    const telegramUser = {
-      id: Number.isSafeInteger(profile.id) ? profile.id : 777777001,
-      first_name: typeof profile.first_name === 'string' && profile.first_name.trim() ? profile.first_name.trim().slice(0, 64) : '模拟用户',
-      last_name: typeof profile.last_name === 'string' && profile.last_name.trim() ? profile.last_name.trim().slice(0, 64) : null,
-      username: typeof profile.username === 'string' && profile.username.trim() ? profile.username.trim().replace(/^@/, '').slice(0, 32) : 'dev_demo',
-      language_code: 'zh-hans',
-    };
-    const user = commerce.upsertTelegramUser(telegramUser);
-    commerce.audit(user.id, 'dev.mock_login', 'app_setting', 'telegram_user', { mode: 'development' });
-    return sendJson(response, 200, issueBuyerSession(user));
-  }
-
   if (method === 'POST' && pathname === '/api/auth/admin/password') {
     if (!checkRateLimit(request, response, 10)) return;
     const body = assertObject(await readJson(request));

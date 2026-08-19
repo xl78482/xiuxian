@@ -16,10 +16,21 @@ test('uses the official Telegram lifecycle and requests fullscreen on first gest
   assert.match(telegram, /expandViewport/);
   assert.match(telegram, /disableVerticalSwipes/);
   assert.match(telegram, /hideBackButton/);
+  assert.match(telegram, /showBackButton/);
+  assert.match(telegram, /onBackButtonClick/);
   assert.match(telegram, /requestFullscreen/);
   assert.match(telegram, /pointerdown/);
   assert.match(telegram, /isAvailable/);
   assert.ok(telegram.indexOf('callSafe(miniAppReady)') < telegram.indexOf('callSafe(expandViewport)'));
+});
+
+test('does not ship demo login or mock telegram data', () => {
+  assert.doesNotMatch(api, /\/api\/auth\/dev/);
+  assert.doesNotMatch(api, /dev_demo/);
+  assert.doesNotMatch(api, /模拟用户/);
+  assert.doesNotMatch(app, /dev-tag/);
+  assert.doesNotMatch(app, /dev-notice/);
+  assert.doesNotMatch(app, /777777001/);
 });
 
 test('uses dynamic viewport and safe-area layout instead of 100vh', () => {

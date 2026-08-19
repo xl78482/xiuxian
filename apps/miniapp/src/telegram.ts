@@ -13,9 +13,12 @@ import {
   mountSwipeBehavior,
   mountThemeParamsSync,
   mountViewport,
+  offBackButtonClick,
+  onBackButtonClick,
   requestFullscreen,
   setMiniAppBackgroundColor,
   setMiniAppHeaderColor,
+  showBackButton,
 } from '@telegram-mini-apps/sdk-react';
 
 let initialized = false;
@@ -65,8 +68,23 @@ export function presentTelegram(): void {
   callSafe(miniAppReady);
   callSafe(expandViewport);
   callSafe(disableVerticalSwipes);
+  // 首页默认隐藏原生 BackButton；二级页面由 App 按路由状态切换显隐。
   callSafe(hideBackButton);
   setupFullscreen();
+}
+
+/** 按路由状态同步 Telegram 原生 BackButton 的显隐。 */
+export function setTelegramBackButton(visible: boolean): void {
+  callSafe(visible ? showBackButton : hideBackButton);
+}
+
+/** 绑定 Telegram 原生 BackButton 点击事件；返回解除函数。 */
+export function bindTelegramBackButton(onBack: () => void): () => void {
+  const off = callSafe(onBackButtonClick, onBack);
+  return () => {
+    if (typeof off === 'function') off();
+    callSafe(offBackButtonClick, onBack);
+  };
 }
 
 // Telegram 官方限制 requestFullscreen 必须由用户手势触发，无法"打开即全屏"。
