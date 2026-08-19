@@ -1,18 +1,36 @@
 {
   "name": "xiuxian",
-  "version": "1.0.33",
+  "version": "1.0.34",
   "private": true,
   "type": "module",
   "description": "Telegram Mini App automatic digital-card delivery platform",
   "scripts": {
-    "dev": "node --watch apps/api/server.js",
+    "dev": "npm run build && node --watch apps/api/server.js",
     "start": "NODE_ENV=production node apps/api/server.js",
+    "build": "node scripts/build-miniapp.js",
     "worker": "node apps/worker/worker.js",
     "seed": "node scripts/seed.js",
     "backup": "node scripts/backup.js",
     "payment:check": "node scripts/check-payment.js",
     "version:check": "node scripts/check-version.js",
+    "typecheck": "node node_modules/typescript/lib/tsc.js --noEmit",
     "test": "node scripts/check-version.js && node --test --test-concurrency=1 \"test/*.test.js\""
+  },
+  "devDependencies": {
+    "@telegram-mini-apps/sdk-react": "npm:@telegram-apps/sdk-react@3.3.9",
+    "@types/node": "22.20.1",
+    "@types/qrcode": "1.5.6",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "autoprefixer": "10.4.21",
+    "esbuild": "0.25.12",
+    "lucide-react": "1.32.0",
+    "postcss": "8.5.26",
+    "qrcode": "1.5.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "tailwindcss": "3.4.17",
+    "typescript": "5.9.3"
   },
   "engines": {
     "node": ">=22.5.0"

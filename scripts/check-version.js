@@ -18,6 +18,12 @@ if (!readme.includes(`当前版本：\`${version}\``)) {
 
 for (const entry of ['apps/miniapp/index.html', 'apps/admin/index.html']) {
   const html = fs.readFileSync(path.join(root, entry), 'utf8');
+  if (entry === 'apps/miniapp/index.html') {
+    if (!html.includes(`name="x-app-version" content="${version}"`)) {
+      throw new Error(`${entry} x-app-version meta must be ${version}.`);
+    }
+    continue;
+  }
   const resourceVersions = [...html.matchAll(/[?&]v=([0-9]+\.[0-9]+\.[0-9]+)/g)].map((match) => match[1]);
   if (resourceVersions.length < 2 || resourceVersions.some((value) => value !== version)) {
     throw new Error(`${entry} asset versions must all be ${version}.`);

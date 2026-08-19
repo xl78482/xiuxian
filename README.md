@@ -1,8 +1,8 @@
 # XiuXian
 
-Telegram Mini App 自动发卡平台。当前版本使用零第三方运行时依赖的 Node.js 22 + SQLite，运行时支付统一使用 DujiaoPay，买家登录统一使用 Telegram `initData`。
+Telegram Mini App 自动发卡平台。后端使用 Node.js 22 + SQLite，买家端使用 React + TypeScript + TailwindCSS，运行时支付统一使用 DujiaoPay，买家登录统一使用 Telegram `initData`。
 
-当前版本：`1.0.33`
+当前版本：`1.0.34`
 
 开发约定：远程仓库只保留 `main` 分支，所有后续代码、文档和配置更新直接提交并推送到 `main`。
 
@@ -36,12 +36,13 @@ SESSION_SECRET=$(node -e "console.log(require('node:crypto').randomBytes(32).toS
 CARD_ENCRYPTION_KEY=$(node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))")
 ```
 
-必须填写 `TELEGRAM_BOT_TOKEN`。DujiaoPay 的三项密钥可以在 `.env` 中同时填写，也可以先留空并在后台“支付渠道”页加密配置；未完整配置时买家端会禁止创建新订单。浏览器直接打开买家地址不会创建开发账号，必须从 Telegram Bot 的 Mini App 按钮进入。
+必须填写 `TELEGRAM_BOT_TOKEN`。DujiaoPay 的三项密钥可以在 `.env` 中同时填写，也可以先留空并在后台“支付渠道”页加密配置；未完整配置时买家端会禁止创建新订单。浏览器直接打开买家地址不会创建开发账号，必须从 Telegram Bot 的 Mini App 按钮进入。买家端使用 `@telegram-mini-apps/sdk-react` 兼容别名（对应官方 npm 包 `@telegram-apps/sdk-react`），初始化顺序为 `ready()`、`expand()`、`disableVerticalSwipes()` 和隐藏原生 `BackButton`；不调用 `requestFullscreen()`。布局使用 Telegram viewport CSS 变量和 `env(safe-area-inset-*)`，不使用 `100vh`。
 
 也可以直接执行：
 
 ```sh
 node scripts/generate-assets.js
+npm run build
 node scripts/seed.js
 npm test
 npm run dev
@@ -153,7 +154,7 @@ npm run backup -- /mnt/secure-backups
 
 ```text
 apps/api       HTTP API 和静态文件服务
-apps/miniapp   买家端 Mini App
+apps/miniapp   React + TypeScript + TailwindCSS 买家端 Mini App（dist 为构建产物）
 apps/admin     管理后台
 apps/worker    支付对账与自动发卡 Worker
 packages/core  配置、SQLite、加密和订单领域服务

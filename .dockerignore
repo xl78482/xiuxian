@@ -6,3 +6,4 @@ data/*.sqlite-shm
 data/*.sqlite-wal
 *.log
 backups
+apps/miniapp/dist

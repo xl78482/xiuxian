@@ -5,3 +5,5 @@ data/*.sqlite-wal
 .DS_Store
 *.log
 backups/*.sqlite
+node_modules/
+apps/miniapp/dist/

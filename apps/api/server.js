@@ -32,7 +32,7 @@ function contentSecurityPolicy() {
     "default-src 'self'",
     "img-src 'self' data: https:",
     "style-src 'self' 'unsafe-inline'",
-    "script-src 'self' https://telegram.org https://*.telegram.org",
+    "script-src 'self'",
     "connect-src 'self'",
     "base-uri 'self'",
     "frame-ancestors 'self' https://web.telegram.org https://*.telegram.org",
@@ -117,6 +117,13 @@ function getBearerToken(request) {
   const authorization = request.headers.authorization;
   if (!authorization || !authorization.startsWith('Bearer ')) return null;
   return authorization.slice(7).trim();
+}
+
+function getTelegramAuthorization(request) {
+  const authorization = request.headers.authorization;
+  if (typeof authorization !== 'string' || !authorization.startsWith('tma ')) return null;
+  const initData = authorization.slice(4).trim();
+  return initData && initData.length <= 8192 ? initData : null;
 }
 
 function requireIdentity(request) {
@@ -261,7 +268,7 @@ function assertPaymentConfigured() {
 }
 
 function telegramIdentityFromHeader(request) {
-  const initData = request.headers['x-telegram-init-data'];
+  const initData = getTelegramAuthorization(request) ?? request.headers['x-telegram-init-data'];
   if (typeof initData !== 'string' || !initData.trim() || initData.length > 8192) return null;
   const telegramUser = verifyTelegramInitData(initData, telegramBotToken());
   const user = commerce.upsertTelegramUser(telegramUser);
@@ -323,10 +330,11 @@ async function handleApi(request, response, url) {
   if (method === 'POST' && pathname === '/api/auth/telegram') {
     if (!checkRateLimit(request, response, 20)) return;
     const body = assertObject(await readJson(request));
-    if (typeof body.initData !== 'string' || body.initData.length > 8192) {
+    const initData = getTelegramAuthorization(request) ?? body.initData;
+    if (typeof initData !== 'string' || initData.length > 8192) {
       throw new DomainError('Telegram 登录数据无效。', 'invalid_request', 422);
     }
-    const telegramUser = verifyTelegramInitData(body.initData, telegramBotToken());
+    const telegramUser = verifyTelegramInitData(initData, telegramBotToken());
     const user = commerce.upsertTelegramUser(telegramUser);
     return sendJson(response, 200, issueBuyerSession(user));
   }
@@ -614,11 +622,13 @@ async function handleApi(request, response, url) {
 }
 
 function serveApplication(request, response, pathname) {
-  const buyerDirectory = path.join(root, 'apps/miniapp');
+  const buyerDirectory = path.join(root, 'apps/miniapp/dist');
   if (
     pathname === '/' ||
     pathname === '/index.html' ||
     pathname === '/orders/' ||
+    pathname === '/wallet' ||
+    pathname === '/wallet/' ||
     pathname.startsWith('/orders/') ||
     pathname.startsWith('/products/')
   ) {

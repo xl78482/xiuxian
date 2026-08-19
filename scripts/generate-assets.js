@@ -4,7 +4,7 @@ import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const target = path.join(root, 'apps/miniapp/assets');
+const target = path.join(root, 'apps/miniapp/public/assets');
 fs.mkdirSync(target, { recursive: true });
 
 const crcTable = Array.from({ length: 256 }, (_, index) => {

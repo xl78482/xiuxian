@@ -2,6 +2,14 @@
 
 本项目使用严格顺序版本 `1.0.N`。每次推送功能、修复、配置或文档更新到 GitHub，都必须把最后一位恰好增加 1，不得跳号。
 
+## [1.0.34] - 2026-08-19
+
+### Changed
+
+- 买家端迁移到 React + TypeScript + TailwindCSS，通过项目兼容别名 `@telegram-mini-apps/sdk-react` 使用官方包 `@telegram-apps/sdk-react` 管理 Telegram Mini App 生命周期。
+- 按官方要求改为 `ready()` 后 `expand()`，禁用垂直下拉收起并隐藏原生 `BackButton`；保留 Telegram 原生顶部栏和自定义底部 Tab 导航，移除 `requestFullscreen()`。
+- 使用 Telegram viewport CSS 变量与 `env(safe-area-inset-*)` 处理刘海、底部手势区和动态 viewport；生产镜像增加 React 前端构建阶段。
+
 ## [1.0.33] - 2026-08-19
 
 ### Changed
